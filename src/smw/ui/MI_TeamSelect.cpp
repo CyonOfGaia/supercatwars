@@ -3,6 +3,7 @@
 #include "gfx.h"
 #include "Game.h"
 #include "GameValues.h"
+#include "joystick.h"
 #include "RandomNumberGenerator.h"
 #include "ResourceManager.h"
 #include "FileList.h"
@@ -63,13 +64,6 @@ void MI_TeamSelect::Draw()
         return;
 
     miImage->Draw();
-
-    short iPlayerCount = 0;
-
-    for (short iPlayer = 0; iPlayer < 4; iPlayer++) {
-        if (game_values.playercontrol[iPlayer] > 0)
-            iPlayerCount++;
-    }
 
     for (short iTeam = 0; iTeam < 4; iTeam++) {
         for (short iTeamItem = 0; iTeamItem < iTeamCounts[iTeam]; iTeamItem++) {
@@ -153,7 +147,7 @@ MenuCodeEnum MI_TeamSelect::SendInput(CPlayerInput * playerInput)
                         if (playerKeys->menu_up.fDown) {
                             game_values.skinids[iPlayer] = RANDOM_INT( skinlist->count());
                         } else {
-                            if (++game_values.skinids[iPlayer] >= skinlist->count())
+                            if (++game_values.skinids[iPlayer] >= static_cast<short>(skinlist->count()))
                                 game_values.skinids[iPlayer] = 0;
                         }
                     } while (!rm->LoadMenuSkin(iPlayer, game_values.skinids[iPlayer], game_values.colorids[iPlayer], false));
@@ -165,7 +159,7 @@ MenuCodeEnum MI_TeamSelect::SendInput(CPlayerInput * playerInput)
                     } else {
                         if (++iFastScrollTimer[iPlayer] > 5) {
                             do {
-                                if (++game_values.skinids[iPlayer] >= skinlist->count())
+                                if (++game_values.skinids[iPlayer] >= static_cast<short>(skinlist->count()))
                                     game_values.skinids[iPlayer] = 0;
                             } while (!rm->LoadMenuSkin(iPlayer, game_values.skinids[iPlayer], game_values.colorids[iPlayer], false));
 
@@ -198,7 +192,7 @@ MenuCodeEnum MI_TeamSelect::SendInput(CPlayerInput * playerInput)
         if (playerInput->outputControls[iPlayer].menu_select.fPressed) {
             fReady[iPlayer] = true;
 
-            if (fAllReady && (DEVICE_KEYBOARD != playerInput->inputControls[iPlayer]->iDevice || iPlayer == 0)) {
+            if (fAllReady && (DEVICE_KEYBOARD_ID != playerInput->inputControls[iPlayer]->iDevice || iPlayer == 0)) {
                 fModifying = false;
                 printf("MI_TeamSelect::SendInput MENU_CODE_TO_GAME_SETUP_MENU\n");
                 return MENU_CODE_TO_GAME_SETUP_MENU;
@@ -218,18 +212,18 @@ MenuCodeEnum MI_TeamSelect::SendInput(CPlayerInput * playerInput)
                 fReady[iPlayer] = false;
                 fAllReady = false;
             } else {
-                if (DEVICE_KEYBOARD != playerInput->inputControls[iPlayer]->iDevice || iPlayer == 0) {
+                if (DEVICE_KEYBOARD_ID != playerInput->inputControls[iPlayer]->iDevice || iPlayer == 0) {
                     fModifying = false;
                     return MENU_CODE_BACK_TO_MATCH_SELECTION_MENU;
                 }
             }
         }
-#if SDL_VERSION_ATLEAST(2, 0, 14)
-        if (DEVICE_KEYBOARD != playerInput->inputControls[iPlayer]->iDevice) {
+        if (DEVICE_KEYBOARD_ID != playerInput->inputControls[iPlayer]->iDevice) {
             short team = GetTeam(iPlayer);
-            gfx_setjoystickteamcolor(SDL_JoystickFromPlayerIndex(playerInput->inputControls[iPlayer]->iDevice), team, fReady[iPlayer] ? 1.0 : 0.5);
+            SDL_Joystick* joystick = JoystickManager::instance().handleFor(playerInput->inputControls[iPlayer]->iDevice);
+            if (joystick)
+                gfx_setjoystickteamcolor(joystick, team, fReady[iPlayer] ? 1.0 : 0.5);
         }
-#endif
     }
 
     return MENU_CODE_NONE;
@@ -282,7 +276,7 @@ void MI_TeamSelect::FindNewTeam(short iPlayerID, short iDirection)
 
                     //Skip skins that are invalid
                     while (!rm->LoadMenuSkin(iPlayerID, game_values.skinids[iPlayerID], iNewTeam, false)) {
-                        if (++game_values.skinids[iPlayerID] >= skinlist->count())
+                        if (++game_values.skinids[iPlayerID] >= static_cast<short>(skinlist->count()))
                             game_values.skinids[iPlayerID] = 0;
                     }
                 }
@@ -399,7 +393,7 @@ void MI_TeamSelect::Reset()
         //Skip skins that are invalid
         //TODO: this loops forever in emscripten build
         while (!rm->LoadMenuSkin(iPlayer, game_values.skinids[iPlayer], game_values.colorids[iPlayer], false)) {
-            if (++game_values.skinids[iPlayer] >= skinlist->count())
+            if (++game_values.skinids[iPlayer] >= static_cast<short>(skinlist->count()))
                 game_values.skinids[iPlayer] = 0;
         }
     }

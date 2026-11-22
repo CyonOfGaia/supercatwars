@@ -2,7 +2,7 @@ name: Build - Windows
 on: workflow_call
 
 env:
-  COMMON_CMAKE_ARGS: >
+  COMMON_CMAKE_ARGS: >-
     -B build
     -G Ninja
     -DCMAKE_BUILD_TYPE=Release
@@ -20,7 +20,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y cmake g++-mingw-w64-x86-64-posix ninja-build
-          curl -L https://github.com/mmatyas/supermariowar/releases/download/v2.0-beta.0/smwlibs-mingw64.tar.xz | tar xJf - -C /tmp/
+          curl -L https://github.com/mmatyas/supermariowar/releases/download/v2.0-beta.0/smwlibs-sdl3-mingw64.tar.xz | tar xJf - -C /tmp/
           cmake --version
 
       - name: Configure
@@ -36,7 +36,7 @@ jobs:
           rm -rf supermariowar/include supermariowar/lib
           cp /usr/lib/gcc/x86_64-w64-mingw32/13-posix/{libgcc_s_seh-1,libstdc++-6}.dll supermariowar/
           cp /usr/x86_64-w64-mingw32/lib/libwinpthread-1.dll supermariowar/
-          cp /tmp/smwlibs/bin/{SDL2,SDL2_image,SDL2_mixer,libgme}.dll supermariowar/
+          cp /tmp/smwlibs/bin/{SDL3,SDL3_image,SDL3_mixer}.dll supermariowar/
           zip -9 -r "supermariowar_$(date +%F)_windows.zip" supermariowar
 
       - name: Upload artifacts
@@ -52,20 +52,25 @@ jobs:
       SCCACHE_GHA_ENABLED: "true"
     steps:
       - uses: actions/checkout@v6
+        with:
+          submodules: 'recursive'
       - uses: ilammy/msvc-dev-cmd@v1
       - uses: mozilla/sccache-action@v0.0.9
 
       - name: Download dependencies
         run: |
           mkdir libs
-          curl -L https://www.libsdl.org/release/SDL2-devel-2.32.10-VC.zip | tar -x --strip-components=1 -C libs
-          curl -L https://www.libsdl.org/projects/SDL_image/release/SDL2_image-devel-2.8.8-VC.zip | tar -x --strip-components=1 -C libs
-          curl -L https://www.libsdl.org/projects/SDL_mixer/release/SDL2_mixer-devel-2.8.1-VC.zip | tar -x --strip-components=1 -C libs
+          curl -L https://www.libsdl.org/release/SDL3-devel-3.4.18-VC.zip | tar -x --strip-components=1 -C libs
+          curl -L https://www.libsdl.org/projects/SDL_image/release/SDL3_image-devel-3.4.8-VC.zip | tar -x --strip-components=1 -C libs
+          curl -L https://www.libsdl.org/projects/SDL_mixer/release/SDL3_mixer-devel-3.2.4-VC.zip | tar -x --strip-components=1 -C libs
+          mkdir build
+          cp libs/lib/x64/*.dll build/
 
       - name: Configure
         shell: bash
         run: cmake $COMMON_CMAKE_ARGS
           -DCMAKE_PREFIX_PATH=libs
+          -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
           -DCMAKE_C_COMPILER_LAUNCHER=sccache
           -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
 
@@ -76,4 +81,15 @@ jobs:
         run: ctest --test-dir build/tests --output-on-failure --build-config Release
 
       - name: Package
-        run: cmake --install build --prefix outdir --strip --config Release
+        shell: bash
+        run: |
+          cmake --install build --prefix supermariowar --strip --config Release
+          rm -rf supermariowar/include supermariowar/lib
+          cp libs/lib/x64/*.dll supermariowar/
+          7z a "supermariowar_$(date +%F)_windows-msvc.zip" supermariowar
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v6
+        with:
+          name: supermariowar_windows-msvc
+          path: supermariowar_*_windows-msvc.zip

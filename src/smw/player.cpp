@@ -281,7 +281,7 @@ bool CPlayer::canSuperStomp() const {
 }
 
 bool CPlayer::wantsToSuperStomp() const {
-    return (playerKeys->game_down.fPressed && playerDevice == DEVICE_KEYBOARD)
+    return (playerKeys->game_down.fPressed && playerDevice == DEVICE_KEYBOARD_ID)
         || (playerKeys->game_jump.fPressed && playerKeys->game_down.fDown);
 }
 
@@ -1289,7 +1289,7 @@ void CPlayer::move()
                 enableFreeFall();
 
             if (playerKeys->game_down.fDown) {
-                if (!lockfall && !inair && (playerDevice == DEVICE_KEYBOARD || pPlayerAI)) {
+                if (!lockfall && !inair && (playerDevice == DEVICE_KEYBOARD_ID || pPlayerAI)) {
                     lockfall = true;
                     fallthrough = true;
                 }
@@ -2121,7 +2121,7 @@ void CPlayer::updateswap()
     if (state != PlayerState::Ready)
         return;
 
-    if (game_values.swapstyle == 1) {
+    if (game_values.swapstyle == MysteryMushroomSwapStyle::Blink) {
         setXf(game_values.flags.swapplayersblink ? fOldSwapX : fNewSwapX);
         setYf(game_values.flags.swapplayersblink ? fOldSwapY : fNewSwapY);
     } else {
@@ -2140,7 +2140,7 @@ void CPlayer::drawswap()
         return;
     }
 
-    if (game_values.swapstyle != 1)
+    if (game_values.swapstyle != MysteryMushroomSwapStyle::Blink)
         updateSprite();
 
     draw();
@@ -2809,7 +2809,7 @@ bool CPlayer::isFacingRight() const
     bool fLeft = game_values.reversewalk;
     bool fRight = !fLeft;
 
-    if (game_values.flags.swapplayers && game_values.swapstyle == 0) {
+    if (game_values.flags.swapplayers && game_values.swapstyle == MysteryMushroomSwapStyle::Walk) {
         if (fNewSwapX < fOldSwapX)
             return fLeft;
         else

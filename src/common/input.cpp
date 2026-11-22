@@ -70,11 +70,11 @@ void CPlayerInput::Update(SDL_Event event, short iGameState)
     for (short iPlayer = -1; iPlayer < MAX_PLAYERS; iPlayer++) {
 		CInputControl * inputControl;
 		COutputControl * outputControl;
-		short iDeviceID = DEVICE_KEYBOARD;
+		SDL_JoystickID iDeviceID = DEVICE_KEYBOARD_ID;
 
 		//Allow keyboard input from player 1 at all times (even when he is configured to use joystick)
         if (iPlayer == -1) {
-            if (iGameState == 1 && inputControls[0]->iDevice != DEVICE_KEYBOARD) {
+            if (iGameState == 1 && inputControls[0]->iDevice != DEVICE_KEYBOARD_ID) {
 				inputControl = &game_values.inputConfiguration[0][0].inputGameControls[1];
 				outputControl = &outputControls[0];
 				iDeviceID = game_values.inputConfiguration[0][0].iDevice;
@@ -90,10 +90,10 @@ void CPlayerInput::Update(SDL_Event event, short iGameState)
 			iDeviceID = inputControls[iPlayer]->iDevice;
 		}
 
-        if (iDeviceID == DEVICE_KEYBOARD) {
-            if (SDL_KEYDOWN == event.type) {
+        if (iDeviceID == DEVICE_KEYBOARD_ID) {
+            if (SDL_EVENT_KEY_DOWN == event.type) {
                 for (int iKey = 0; iKey < NUM_KEYS && !fFound; iKey++) {
-                    if (inputControl->keys[iKey] == event.key.keysym.sym) {
+                    if (inputControl->keys[iKey] == event.key.key) {
 						fFound = true;
 
 						//Ignore input for cpu controlled players
@@ -107,10 +107,10 @@ void CPlayerInput::Update(SDL_Event event, short iGameState)
 					}
 				}
 
-				iPressedKey = event.key.keysym.sym;
-            } else if (SDL_KEYUP == event.type) {
+				iPressedKey = event.key.key;
+            } else if (SDL_EVENT_KEY_UP == event.type) {
                 for (int iKey = 0; iKey < NUM_KEYS && !fFound; iKey++) {
-                    if (inputControl->keys[iKey] == event.key.keysym.sym) {
+                    if (inputControl->keys[iKey] == event.key.key) {
 						fFound = true;
 
 						//Ignore input for cpu controlled players
@@ -120,14 +120,14 @@ void CPlayerInput::Update(SDL_Event event, short iGameState)
 						outputControl->keys[iKey].fDown = false;
 					}
 				}
-            } else if (SDL_MOUSEMOTION == event.type) {
+            } else if (SDL_EVENT_MOUSE_MOTION == event.type) {
                 for (int iKey = 0; iKey < NUM_KEYS && !fFound; iKey++) {
                     if (inputControl->keys[iKey] >= MOUSE_UP) {
 						if ((inputControl->keys[iKey] == MOUSE_UP && event.motion.yrel < -MOUSE_Y_DEAD_ZONE) ||
 							(inputControl->keys[iKey] == MOUSE_DOWN && event.motion.yrel > MOUSE_Y_DEAD_ZONE) ||
 							(inputControl->keys[iKey] == MOUSE_LEFT && event.motion.xrel < -MOUSE_X_DEAD_ZONE) ||
 							(inputControl->keys[iKey] == MOUSE_RIGHT && event.motion.xrel > MOUSE_X_DEAD_ZONE) ||
-                                (inputControl->keys[iKey] >= MOUSE_BUTTON_START && (event.motion.state & SDL_BUTTON(inputControl->keys[iKey] - MOUSE_BUTTON_START)))) {
+                                (inputControl->keys[iKey] >= MOUSE_BUTTON_START && (event.motion.state & SDL_BUTTON_MASK(inputControl->keys[iKey] - MOUSE_BUTTON_START)))) {
 							fFound = true;
 
 							//Ignore input for cpu controlled players
@@ -151,7 +151,7 @@ void CPlayerInput::Update(SDL_Event event, short iGameState)
 						}
 					}
 				}
-            } else if (SDL_MOUSEBUTTONDOWN == event.type) {
+            } else if (SDL_EVENT_MOUSE_BUTTON_DOWN == event.type) {
                 for (int iKey = 0; iKey < NUM_KEYS && !fFound; iKey++) {
                     if (inputControl->keys[iKey] == event.button.button + MOUSE_BUTTON_START) {
 						fFound = true;
@@ -166,7 +166,7 @@ void CPlayerInput::Update(SDL_Event event, short iGameState)
 						outputControl->keys[iKey].fDown = true;
 					}
 				}
-            } else if (SDL_MOUSEBUTTONUP == event.type) {
+            } else if (SDL_EVENT_MOUSE_BUTTON_UP == event.type) {
                 for (int iKey = 0; iKey < NUM_KEYS && !fFound; iKey++) {
                     if (inputControl->keys[iKey] == event.button.button + MOUSE_BUTTON_START) {
 						fFound = true;
@@ -184,7 +184,7 @@ void CPlayerInput::Update(SDL_Event event, short iGameState)
 				}
 			}
         } else {
-            if (SDL_JOYHATMOTION == event.type) {
+            if (SDL_EVENT_JOYSTICK_HAT_MOTION == event.type) {
 				if (iDeviceID != event.jhat.which)
 					continue;
 
@@ -213,7 +213,7 @@ void CPlayerInput::Update(SDL_Event event, short iGameState)
 						}
 					}
 				}
-            } else if (SDL_JOYBUTTONDOWN == event.type) {
+            } else if (SDL_EVENT_JOYSTICK_BUTTON_DOWN == event.type) {
 				if (iDeviceID != event.jbutton.which)
 					continue;
 
@@ -231,7 +231,7 @@ void CPlayerInput::Update(SDL_Event event, short iGameState)
 						outputControl->keys[iKey].fDown = true;
 					}
 				}
-            } else if (SDL_JOYBUTTONUP == event.type) {
+            } else if (SDL_EVENT_JOYSTICK_BUTTON_UP == event.type) {
 				if (iDeviceID != event.jbutton.which)
 					continue;
 
@@ -246,7 +246,7 @@ void CPlayerInput::Update(SDL_Event event, short iGameState)
 						outputControl->keys[iKey].fDown = false;
 					}
 				}
-            } else if (SDL_JOYAXISMOTION == event.type) {
+            } else if (SDL_EVENT_JOYSTICK_AXIS_MOTION == event.type) {
 				if (iDeviceID != event.jaxis.which)
 					continue;
 

@@ -9,6 +9,8 @@
 #include "input.h"
 #include "MatchTypes.h"
 
+#include <array>
+#include <string>
 #include <vector>
 
 class sfxSound;
@@ -93,7 +95,7 @@ public:
     short		redblockttl;
     short		grayblockttl;
     short		bombslimit;
-    short		bonuswheel;
+    BonusWheelStyle bonuswheel;
     short		fireballttl;
     short		fireballlimit;
     BoomerangStyle boomerangstyle;
@@ -122,13 +124,13 @@ public:
     CPlayerInput playerInput;
     bool		playnextmusic;  //automatically advance to the next music track after one finishes
     short		outofboundstime;
-    short		overridepowerupsettings;
+    PowerupDropRateStyle overridepowerupsettings;
     bool		secretsenabled;
     GameModeSettings gamemodemenusettings;
     bool		music;
     short		pointspeed;
     short poweruppreset;
-    short allPowerupPresets[NUM_POWERUP_PRESETS][NUM_POWERUPS];
+    std::array<std::array<short, NUM_POWERUPS>, NUM_POWERUP_PRESETS> allPowerupPresets;
     bool		randomskin[4];
     ScoreboardStyle scoreboardstyle;
     bool		screencrunch;
@@ -145,11 +147,19 @@ public:
     bool		startgamecountdown;
     bool		startmodedisplay;
     short		storedpowerupdelay;
-    short		swapstyle;
+    MysteryMushroomSwapStyle swapstyle;
     short		respawn;
 
-    void ReadBinaryConfig();
+    void ReadConfig();
     void WriteConfig() const;
+
+private:
+    void ReadInputConfig();
+    void ReadBinaryConfig();
+    void ReadTomlConfig();
+
+    void WriteInputConfig() const;
+    void WriteTomlConfig() const;
 };
 
 // these are actually the program options

@@ -14,7 +14,7 @@
 #include "Version.h"
 #include "map/MapReader.h"
 
-#include "SDL_image.h"
+#include <SDL3_image/SDL_image.h>
 
 #include <cmath>
 #include <iostream>
@@ -118,102 +118,121 @@ void DrawMapHazard(const MapHazard& hazard, short iSize, bool fDrawCenter, SDL_S
 
     rPathDst = {hazard.ix << (iSizeShift - 1), hazard.iy << (iSizeShift - 1), iTileSize, iTileSize};
 
-    if (fDrawCenter) {
-        if (hazard.itype <= 1) {
-            rm->spr_platformpath.draw(rPathSrc, dst, rPathDst);
-        }
-    }
+    switch (hazard.itype) {
+        case MapHazardType::FireBar: {
+            if (fDrawCenter)
+                rm->spr_platformpath.draw(rPathSrc, dst, rPathDst);
 
-    if (hazard.itype == 0) { //fireball string
-        short iNumDots = 16;
-        float dRadius = (float)((hazard.iparam[0] - 1) * 24) / (float)(1 << iSize) + (iPlatformPathDotSize[iSize] >> 1);
-        float dAngle = hazard.dparam[1];
-        for (short iDot = 0; iDot < iNumDots; iDot++) {
-            rDotDst.x = (short)(dRadius * cos(dAngle)) + rPathDst.x + (iTileSize >> 1) - (iPlatformPathDotSize[iSize] >> 1);
-            rDotDst.y = (short)(dRadius * sin(dAngle)) + rPathDst.y + (iTileSize >> 1) - (iPlatformPathDotSize[iSize] >> 1);
-            rDotDst.h = rDotDst.w = iPlatformPathDotSize[iSize];
+            short iNumDots = 16;
+            float dRadius = (float)((hazard.iparam[0] - 1) * 24) / (float)(1 << iSize) + (iPlatformPathDotSize[iSize] >> 1);
+            float dAngle = hazard.dparam[1];
+            for (short iDot = 0; iDot < iNumDots; iDot++) {
+                rDotDst.x = (short)(dRadius * cos(dAngle)) + rPathDst.x + (iTileSize >> 1) - (iPlatformPathDotSize[iSize] >> 1);
+                rDotDst.y = (short)(dRadius * sin(dAngle)) + rPathDst.y + (iTileSize >> 1) - (iPlatformPathDotSize[iSize] >> 1);
+                rDotDst.h = rDotDst.w = iPlatformPathDotSize[iSize];
 
-            rm->spr_platformpath.draw(rDotDst.x, rDotDst.y, {rDotSrc.x, rDotSrc.y, rDotDst.w, rDotDst.h});
-            dAngle += TWO_PI / iNumDots;
-        }
+                rm->spr_platformpath.draw(rDotDst.x, rDotDst.y, {rDotSrc.x, rDotSrc.y, rDotDst.w, rDotDst.h});
+                dAngle += TWO_PI / iNumDots;
+            }
 
-        //Draw the fireball string
-        for (short iFireball = 0; iFireball < hazard.iparam[0]; iFireball++) {
-            short x = (hazard.ix << (iSizeShift - 1)) + (short)((float)(iFireball * (24 >> iSize)) * cos(hazard.dparam[1])) + (iTileSize >> 1) - (iFireballHazardSize[iSize] >> 1);
-            short y = (hazard.iy << (iSizeShift - 1)) + (short)((float)(iFireball * (24 >> iSize)) * sin(hazard.dparam[1])) + (iTileSize >> 1) - (iFireballHazardSize[iSize] >> 1);
+            //Draw the fireball string
+            for (short iFireball = 0; iFireball < hazard.iparam[0]; iFireball++) {
+                short x = (hazard.ix << (iSizeShift - 1)) + (short)((float)(iFireball * (24 >> iSize)) * cos(hazard.dparam[1])) + (iTileSize >> 1) - (iFireballHazardSize[iSize] >> 1);
+                short y = (hazard.iy << (iSizeShift - 1)) + (short)((float)(iFireball * (24 >> iSize)) * sin(hazard.dparam[1])) + (iTileSize >> 1) - (iFireballHazardSize[iSize] >> 1);
 
-            rm->spr_hazard_fireball[iSize].draw(x, y, {0, 0, iFireballHazardSize[iSize], iFireballHazardSize[iSize]});
-        }
-    } else if (hazard.itype == 1) { //rotodisc
-        short iNumDots = 16;
-        float dRadius = (hazard.dparam[2] + (iTileSize >> 1) - (iPlatformPathDotSize[iSize] >> 1)) / (float)(1 << iSize);
-        float dAngle = hazard.dparam[1];
-        for (short iDot = 0; iDot < iNumDots; iDot++) {
-            rDotDst.x = (short)(dRadius * cos(dAngle)) + rPathDst.x + (iTileSize >> 1) - (iPlatformPathDotSize[iSize] >> 1);
-            rDotDst.y = (short)(dRadius * sin(dAngle)) + rPathDst.y + (iTileSize >> 1) - (iPlatformPathDotSize[iSize] >> 1);
-            rDotDst.h = rDotDst.w = iPlatformPathDotSize[iSize];
-
-            rm->spr_platformpath.draw(rDotDst.x, rDotDst.y, {rDotSrc.x, rDotSrc.y, rDotDst.w, rDotDst.h});
-            dAngle += TWO_PI / iNumDots;
+                rm->spr_hazard_fireball[iSize].draw(x, y, {0, 0, iFireballHazardSize[iSize], iFireballHazardSize[iSize]});
+            }
+            break;
         }
 
-        //Draw the rotodiscs
-        float dSector = TWO_PI / hazard.iparam[0];
-        dAngle = hazard.dparam[1];
-        dRadius = hazard.dparam[2] / (float)(1 << iSize);
-        for (short iRotodisc = 0; iRotodisc < hazard.iparam[0]; iRotodisc++) {
-            short x = rPathDst.x + (short)(dRadius * cos(dAngle));
-            short y = rPathDst.y + (short)(dRadius * sin(dAngle));
+        case MapHazardType::RotoDisc: {
+            if (fDrawCenter)
+                rm->spr_platformpath.draw(rPathSrc, dst, rPathDst);
 
-            rm->spr_hazard_rotodisc[iSize].draw(x, y, {0, 0, iTileSize, iTileSize});
+            short iNumDots = 16;
+            float dRadius = (hazard.dparam[2] + (iTileSize >> 1) - (iPlatformPathDotSize[iSize] >> 1)) / (float)(1 << iSize);
+            float dAngle = hazard.dparam[1];
+            for (short iDot = 0; iDot < iNumDots; iDot++) {
+                rDotDst.x = (short)(dRadius * cos(dAngle)) + rPathDst.x + (iTileSize >> 1) - (iPlatformPathDotSize[iSize] >> 1);
+                rDotDst.y = (short)(dRadius * sin(dAngle)) + rPathDst.y + (iTileSize >> 1) - (iPlatformPathDotSize[iSize] >> 1);
+                rDotDst.h = rDotDst.w = iPlatformPathDotSize[iSize];
 
-            dAngle += dSector;
-        }
-    } else if (hazard.itype == 2) { //bullet bill
-        rm->spr_hazard_bulletbill[iSize].draw(rPathDst.x, rPathDst.y, {0, hazard.dparam[0] < 0.0f ? 0 : iTileSize, iTileSize, iTileSize});
+                rm->spr_platformpath.draw(rDotDst.x, rDotDst.y, {rDotSrc.x, rDotSrc.y, rDotDst.w, rDotDst.h});
+                dAngle += TWO_PI / iNumDots;
+            }
 
-        short iBulletPathX = rPathDst.x - iPlatformPathDotSize[iSize];
-        if (hazard.dparam[0] > 0.0f)
-            iBulletPathX = rPathDst.x + iTileSize;
+            //Draw the rotodiscs
+            float dSector = TWO_PI / hazard.iparam[0];
+            dAngle = hazard.dparam[1];
+            dRadius = hazard.dparam[2] / (float)(1 << iSize);
+            for (short iRotodisc = 0; iRotodisc < hazard.iparam[0]; iRotodisc++) {
+                short x = rPathDst.x + (short)(dRadius * cos(dAngle));
+                short y = rPathDst.y + (short)(dRadius * sin(dAngle));
 
-        short iBulletPathSpacing = (short)(hazard.dparam[0] * dBulletBillFrequency[iSize]);
-        while (iBulletPathX >= 0 && iBulletPathX < GetScreenWidth(iSize)) {
-            rDotDst = {iBulletPathX, rPathDst.y + ((iTileSize - iPlatformPathDotSize[iSize]) >> 1), iPlatformPathDotSize[iSize], iPlatformPathDotSize[iSize]};
-            rm->spr_platformpath.draw(rDotSrc, dst, rDotDst);
+                rm->spr_hazard_rotodisc[iSize].draw(x, y, {0, 0, iTileSize, iTileSize});
 
-            iBulletPathX += hazard.iparam[0] < 0.0f ? -iBulletPathSpacing : iBulletPathSpacing;
-        }
-    } else if (hazard.itype == 3) { //flame cannon
-        const SDL_Rect * rect = &g_rFlameRects[hazard.iparam[1]][2];
-
-        short iOffsetX = 0;
-        short iOffsetY = 0;
-
-        if (hazard.iparam[1] == 1) {
-            iOffsetX = -(iTileSize << 1);
-        } else if (hazard.iparam[1] == 2) {
-            iOffsetY = -(iTileSize << 1);
+                dAngle += dSector;
+            }
+            break;
         }
 
-        rm->spr_hazard_flame[iSize].draw(rPathDst.x + iOffsetX, rPathDst.y + iOffsetY, {rect->x >> iSize, rect->y >> iSize, rect->w >> iSize, rect->h >> iSize});
-    } else if (hazard.itype >= 4 && hazard.itype <= 7) { //pirhana plants
-        const SDL_Rect * rect = &g_rPirhanaRects[hazard.itype - 4][hazard.iparam[1]][0];
-        short iOffsetX = 0;
-        short iOffsetY = 0;
+        case MapHazardType::BulletBill: {
+            rm->spr_hazard_bulletbill[iSize].draw(rPathDst.x, rPathDst.y, {0, hazard.dparam[0] < 0.0f ? 0 : iTileSize, iTileSize, iTileSize});
 
-        if (hazard.iparam[1] == 0) {
-            if (hazard.itype == 6)
-                iOffsetY = -iTileSize;
-            else
-                iOffsetY = -(iTileSize >> 1);
-        } else if (hazard.iparam[1] == 2) {
-            if (hazard.itype == 6)
-                iOffsetX = -iTileSize;
-            else
-                iOffsetX = -(iTileSize >> 1);
+            short iBulletPathX = rPathDst.x - iPlatformPathDotSize[iSize];
+            if (hazard.dparam[0] > 0.0f)
+                iBulletPathX = rPathDst.x + iTileSize;
+
+            short iBulletPathSpacing = (short)(hazard.dparam[0] * dBulletBillFrequency[iSize]);
+            while (iBulletPathX >= 0 && iBulletPathX < GetScreenWidth(iSize)) {
+                rDotDst = {iBulletPathX, rPathDst.y + ((iTileSize - iPlatformPathDotSize[iSize]) >> 1), iPlatformPathDotSize[iSize], iPlatformPathDotSize[iSize]};
+                rm->spr_platformpath.draw(rDotSrc, dst, rDotDst);
+
+                iBulletPathX += hazard.iparam[0] < 0.0f ? -iBulletPathSpacing : iBulletPathSpacing;
+            }
+            break;
         }
 
-        rm->spr_hazard_pirhanaplant[iSize].draw(rPathDst.x + iOffsetX, rPathDst.y + iOffsetY, {rect->x >> iSize, rect->y >> iSize, rect->w >> iSize, rect->h >> iSize});
+        case MapHazardType::FlameCannon: {
+            const SDL_Rect * rect = &g_rFlameRects[hazard.iparam[1]][2];
+
+            short iOffsetX = 0;
+            short iOffsetY = 0;
+
+            if (hazard.iparam[1] == 1) {
+                iOffsetX = -(iTileSize << 1);
+            } else if (hazard.iparam[1] == 2) {
+                iOffsetY = -(iTileSize << 1);
+            }
+
+            rm->spr_hazard_flame[iSize].draw(rPathDst.x + iOffsetX, rPathDst.y + iOffsetY, {rect->x >> iSize, rect->y >> iSize, rect->w >> iSize, rect->h >> iSize});
+            break;
+        }
+
+        case MapHazardType::PirhanaGreen:
+        case MapHazardType::PirhanaRed:
+        case MapHazardType::PirhanaTall:
+        case MapHazardType::PirhanaShort: {
+            const short iPirhanaPlantType = static_cast<short>(hazard.itype) - static_cast<short>(MapHazardType::PirhanaGreen);
+            const SDL_Rect * rect = &g_rPirhanaRects[iPirhanaPlantType][hazard.iparam[1]][0];
+            short iOffsetX = 0;
+            short iOffsetY = 0;
+
+            if (hazard.iparam[1] == 0) {
+                if (hazard.itype == MapHazardType::PirhanaTall)
+                    iOffsetY = -iTileSize;
+                else
+                    iOffsetY = -(iTileSize >> 1);
+            } else if (hazard.iparam[1] == 2) {
+                if (hazard.itype == MapHazardType::PirhanaTall)
+                    iOffsetX = -iTileSize;
+                else
+                    iOffsetX = -(iTileSize >> 1);
+            }
+
+            rm->spr_hazard_pirhanaplant[iSize].draw(rPathDst.x + iOffsetX, rPathDst.y + iOffsetY, {rect->x >> iSize, rect->y >> iSize, rect->w >> iSize, rect->h >> iSize});
+            break;
+        }
     }
 }
 
@@ -420,14 +439,14 @@ void DrawPlatform(
 
 
 CMap::CMap()
-    : warpexits()
-    , tilebltrect()
+    : tilebltrect()
     , bltrect()
     , drawareas()
     , iSwitches()
     , racegoallocations()
     , flagbaselocations()
 {
+    warpexits.reserve(MAXWARPS);
     mapitems.reserve(MAXMAPITEMS);
     maphazards.reserve(MAXMAPHAZARDS);
 }
@@ -506,6 +525,7 @@ void CMap::clearMap()
 
     mapitems.clear();
     maphazards.clear();
+    warpexits.clear();
 
     for (short iSwitch = 0; iSwitch < 4; iSwitch++)
         iSwitches[iSwitch] = 0;
@@ -769,7 +789,7 @@ void CMap::saveMap(const std::string& file)
             //Calculate what warp tiles belong together (any warps that have the same connection that are
             //next to each other are merged into a single warp)
             //If there are too many warps, then remove any warp encountered that is over that limit
-            if (warpdata[i][j].connection != -1 && !usedtile[i][j]) {
+            if (warpdata[i][j].connection != -1 && !usedtile[i][j] && warpdata[i][j].direction >= 0) {
                 int movex = 0, movey = 0;
                 int currentx = i, currenty = j;
 
@@ -1003,7 +1023,7 @@ void CMap::saveMap(const std::string& file)
     mapfile.write_i32(maphazards.size());
 
     for (const MapHazard& hazard : maphazards) {
-        mapfile.write_i32(hazard.itype);
+        mapfile.write_i32(static_cast<int32_t>(hazard.itype));
         mapfile.write_i32(hazard.ix);
         mapfile.write_i32(hazard.iy);
 
@@ -1081,7 +1101,7 @@ void CMap::saveMap(const std::string& file)
         for (i = 0; i < MAPWIDTH; i++) {
             //if we found a warp area and it hasn't been consumed by another warp area
             //then scan for surrounding warp areas and consume them to create a warp exit
-            if (warpdata[i][j].connection != -1 && !usedtile[i][j]) {
+            if (warpdata[i][j].connection != -1 && !usedtile[i][j] && warpdata[i][j].direction >= 0) {
                 int movex = 0, movey = 0;
                 int currentx = i, currenty = j;
 
@@ -1778,8 +1798,8 @@ void CMap::preDrawPreviewBackground(const gfxSprite& background, gfxSprite& targ
 void CMap::preDrawPreviewBlocks(gfxSprite& targetSurface, bool fThumbnail)
 {
     if (!fThumbnail) {
-        SDL_FillRect(targetSurface.getSurface(), NULL, SDL_MapRGB(targetSurface.getSurface()->format, 255, 0, 255));
-        SDL_SetColorKey(targetSurface.getSurface(), SDL_TRUE, SDL_MapRGB(targetSurface.getSurface()->format, 255, 0, 255));
+        SDL_FillSurfaceRect(targetSurface.getSurface(), NULL, SDL_MapSurfaceRGB(targetSurface.getSurface(), 255, 0, 255));
+        SDL_SetSurfaceColorKey(targetSurface.getSurface(), true, SDL_MapSurfaceRGB(targetSurface.getSurface(), 255, 0, 255));
         smallDelay();
     }
 
@@ -1790,8 +1810,8 @@ void CMap::preDrawPreviewBlocks(gfxSprite& targetSurface, bool fThumbnail)
 void CMap::preDrawPreviewForeground(gfxSprite& targetSurface, bool fThumbnail)
 {
     if (!fThumbnail) {
-        SDL_FillRect(targetSurface.getSurface(), NULL, SDL_MapRGB(targetSurface.getSurface()->format, 255, 0, 255));
-        SDL_SetColorKey(targetSurface.getSurface(), SDL_TRUE, SDL_MapRGB(targetSurface.getSurface()->format, 255, 0, 255));
+        SDL_FillSurfaceRect(targetSurface.getSurface(), NULL, SDL_MapSurfaceRGB(targetSurface.getSurface(), 255, 0, 255));
+        SDL_SetSurfaceColorKey(targetSurface.getSurface(), true, SDL_MapSurfaceRGB(targetSurface.getSurface(), 255, 0, 255));
         smallDelay();
     }
 
@@ -1933,15 +1953,22 @@ void CMap::predrawbackground(gfxSprite &background, gfxSprite &mapspr)
         //int color = 0x00 << 24 | RANDOM_INT(256) << 16 | RANDOM_INT(256) << 8 | RANDOM_INT(256);
     	int color = 0x128 << 24 | 0x255 << 8;
 
-    	SDL_FillRect(mapspr.getSurface(), &dest, color);		//fill empty area with black
+        SDL_FillSurfaceRect(mapspr.getSurface(), &dest, color);		//fill empty area with black
     }
     */
 }
 
 void CMap::predrawforeground(gfxSprite &foregroundspr)
 {
-    SDL_FillRect(foregroundspr.getSurface(), NULL, SDL_MapRGB(foregroundspr.getSurface()->format, 255, 0, 255));
-    SDL_SetColorKey(foregroundspr.getSurface(), SDL_TRUE, SDL_MapRGB(foregroundspr.getSurface()->format, 255, 0, 255));
+    if (SDL_MUSTLOCK(foregroundspr.getSurface()))
+        SDL_LockSurface(foregroundspr.getSurface());
+
+    SDL_FillSurfaceRect(foregroundspr.getSurface(), NULL, SDL_MapSurfaceRGB(foregroundspr.getSurface(), 255, 0, 255));
+    SDL_SetSurfaceColorKey(foregroundspr.getSurface(), true, SDL_MapSurfaceRGB(foregroundspr.getSurface(), 255, 0, 255));
+
+    if (SDL_MUSTLOCK(foregroundspr.getSurface()))
+        SDL_UnlockSurface(foregroundspr.getSurface());
+
     draw(foregroundspr, 2);
     draw(foregroundspr, 3);
 }
@@ -1962,7 +1989,7 @@ void CMap::SetupAnimatedTiles()
         animatedBackmapSurface = rm->spr_backmap[g_iCurrentDrawIndex].getSurface();
         animatedTilesSurface = gfxSprite::blank(1024, 1024);
 
-        int iTransparentColor = SDL_MapRGB(animatedTilesSurface.getSurface()->format, 255, 0, 255);
+        int iTransparentColor = SDL_MapSurfaceRGB(animatedTilesSurface.getSurface(), 255, 0, 255);
 
         std::vector<AnimatedTile*>::iterator iter = animatedtiles.begin(), lim = animatedtiles.end();
 
@@ -2014,7 +2041,7 @@ void CMap::SetupAnimatedTiles()
                 for (short sTileAnimationFrame = 0; sTileAnimationFrame < 4; sTileAnimationFrame++) {
                     tile->rAnimationSrc[1][sTileAnimationFrame] = rDst;
 
-                    SDL_FillRect(animatedTilesSurface.getSurface(), &rDst, iTransparentColor);
+                    SDL_FillSurfaceRect(animatedTilesSurface.getSurface(), &rDst, iTransparentColor);
 
                     for (short iLayer = 2; iLayer < 4; iLayer++) {
                         TilesetTile * tilesetTile = &tile->layers[iLayer];
@@ -2049,7 +2076,7 @@ void CMap::SetupAnimatedTiles()
                 for (short sTileAnimationFrame = 0; sTileAnimationFrame < 4; sTileAnimationFrame++) {
                     tile->rAnimationSrc[0][sTileAnimationFrame] = rDst;
 
-                    SDL_FillRect(animatedTilesSurface.getSurface(), &rDst, iTransparentColor);
+                    SDL_FillSurfaceRect(animatedTilesSurface.getSurface(), &rDst, iTransparentColor);
 
                     TilesetTile * tilesetTile = &tile->layers[0];
                     if (tilesetTile->iID == TILESETANIMATED) {
@@ -2215,19 +2242,20 @@ WarpExit * CMap::getRandomWarpExit(int connection, int currentID)
 
     WarpExit * currentWarp = NULL;
 
-    for (int k = 0; k < numwarpexits; k++) {
+    for (size_t k = 0; k < warpexits.size(); k++) {
         if (warpexits[k].connection == connection) {
-            if (warpexits[k].id == currentID)
+            if (warpexits[k].id == currentID) {
                 currentWarp = &warpexits[k];
-            else
-                indices[numIndices++] = k;
+            } else {
+                indices[numIndices++] = static_cast<int>(k);
+            }
         }
     }
 
     if (numIndices == 0)
         return currentWarp;
 
-    return &warpexits[indices[RANDOM_INT( numIndices)]];
+    return &warpexits[indices[RANDOM_INT(numIndices)]];
 }
 
 void CMap::clearWarpLocks()
@@ -2237,16 +2265,16 @@ void CMap::clearWarpLocks()
         warplocked[iConnection] = false;
     }
 
-    for (short iWarpExit = 0; iWarpExit < numwarpexits; iWarpExit++) {
-        warpexits[iWarpExit].locktimer = 0;
+    for (WarpExit& warpExit : warpexits) {
+        warpExit.locktimer = 0;
     }
 }
 
 void CMap::drawWarpLocks()
 {
-    for (int iWarpExit = 0; iWarpExit < numwarpexits; iWarpExit++) {
-        if (warplocked[warpexits[iWarpExit].connection] || warpexits[iWarpExit].locktimer > 0) {
-            rm->spr_warplock.draw(warpexits[iWarpExit].lockx, warpexits[iWarpExit].locky);
+    for (const WarpExit& warpExit : warpexits) {
+        if (warplocked[warpExit.connection] || warpExit.locktimer > 0) {
+            rm->spr_warplock.draw(warpExit.lockx, warpExit.locky);
         }
     }
 }
@@ -2264,9 +2292,9 @@ void CMap::update()
     }
 
     //If warp is individually locked, then reduce lock timer
-    for (short iWarpExit = 0; iWarpExit < numwarpexits; iWarpExit++) {
-        if (warpexits[iWarpExit].locktimer > 0)
-            --warpexits[iWarpExit].locktimer;
+    for (WarpExit& warpExit : warpexits) {
+        if (warpExit.locktimer > 0)
+            --warpExit.locktimer;
     }
 
     //Animate the animated tiles
@@ -2400,7 +2428,7 @@ void CMap::drawfrontlayer()
             if (mapdatatop[j][i].iType == TileType::gap)
     		{
     			SDL_Rect r = {j << 5, i << 5, TILESIZE, TILESIZE};
-    			SDL_FillRect(blitdest, &r, SDL_MapRGB(blitdest->format, 255, 0, 255));
+    			SDL_FillSurfaceRect(blitdest, &r, SDL_MapRGB(blitdest->format, 255, 0, 255));
     		}
     	}
     }*/

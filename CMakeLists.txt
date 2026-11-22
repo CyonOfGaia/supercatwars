@@ -4,7 +4,7 @@
 #
 #-----------------------------------------------------------------------------
 
-cmake_minimum_required(VERSION 3.24)
+cmake_minimum_required(VERSION 3.25)
 
 project(smw
 	VERSION 2.0.0
@@ -247,7 +247,6 @@ if (NOT BUILD_STATIC_LIBS)
 	if(NOT NO_NETWORK)
 		set(CPACK_DEBIAN_PACKAGE_DEPENDS "${CPACK_DEBIAN_PACKAGE_DEPENDS}, libenet2a")
 	endif()
-	set(CPACK_DEBIAN_PACKAGE_DEPENDS "${CPACK_DEBIAN_PACKAGE_DEPENDS}, libyaml-cpp0.5")
 endif()
 
 #
@@ -260,7 +259,6 @@ if (NOT BUILD_STATIC_LIBS)
 	if(NOT NO_NETWORK)
 		set(CPACK_RPM_PACKAGE_REQUIRES "${CPACK_RPM_PACKAGE_REQUIRES}, enet")
 	endif()
-	set(CPACK_RPM_PACKAGE_REQUIRES "${CPACK_RPM_PACKAGE_REQUIRES}, yaml-cpp")
 endif()
 
 #

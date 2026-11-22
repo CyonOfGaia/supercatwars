@@ -1,12 +1,11 @@
 #ifndef SMW_MAP_H
 #define SMW_MAP_H
 
+#include "gfx.h"
 #include "GlobalConstants.h"
 #include "TileTypes.h"
 
-#include "SDL.h"
-
-#include "gfx.h"
+#include <SDL3/SDL.h>
 
 #include <array>
 #include <list>
@@ -33,6 +32,18 @@ enum MapItemType : unsigned char {
     GoldenSpring,
     StickyKuriboShoe,
     ThrowBox,
+};
+
+// NOTE: Types have a fixed order! See the 1.8 map reader.
+enum class MapHazardType : unsigned char {
+    FireBar,
+    RotoDisc,
+    BulletBill,
+    FlameCannon,
+    PirhanaGreen,
+    PirhanaRed,
+    PirhanaTall,
+    PirhanaShort,
 };
 
 /*
@@ -75,12 +86,11 @@ enum WarpEnterDirection {
 	WARP_UNDEFINED = -1
 };
 
-enum WarpExitDirection {
-	WARP_EXIT_UP = 0,
-	WARP_EXIT_RIGHT = 1,
-	WARP_EXIT_DOWN = 2,
-	WARP_EXIT_LEFT = 3,
-	WARP_EXIT_UNDEFINED = -1
+enum class WarpExitDirection : unsigned char {
+	Up = 0,
+	Right = 1,
+	Down = 2,
+	Left = 3,
 };
 
 struct Warp {
@@ -122,7 +132,7 @@ struct MapItem {
 };
 
 struct MapHazard {
-	short itype;
+	MapHazardType itype;
 	short ix;
 	short iy;
 
@@ -284,8 +294,7 @@ class CMap
 		short		totalspawnsize[NUMSPAWNAREATYPES];
 
 		Warp        warpdata[MAPWIDTH][MAPHEIGHT];
-		short		numwarpexits = 0; //number of warp exits
-		WarpExit	warpexits[MAXWARPS];
+		std::vector<WarpExit> warpexits;
 		short		warplocktimer[10];
 		bool		warplocked[10];
 		short		maxConnection = 0;

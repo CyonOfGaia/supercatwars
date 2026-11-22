@@ -55,6 +55,7 @@
 
 #include "FPSLimiter.h"
 #include "GSSplashScreen.h"
+#include "joystick.h"
 
 #include <ctime>
 #include <cmath>
@@ -71,6 +72,8 @@
     extern "C" FILE * __cdecl __iob_func(void) { return _iob; }
 #endif
 #endif
+
+#include <SDL3/SDL_main.h>
 
 
 //now it's really time for an "engine" (aka resource manager)
@@ -103,9 +106,6 @@ CGM_Boss_MiniGame	*bossgamemode = NULL;
 CGM_Boxes_MiniGame	*boxesgamemode = NULL;
 
 short currentgamemode = 0;
-
-extern SDL_Joystick     **joysticks;
-extern short            joystickcount;
 
 extern CMap* g_map;
 extern CTilesetManager* g_tilesetmanager;
@@ -167,7 +167,7 @@ void create_globals()
 {
     // this instance will contain the other relevant objects
     rm = new CResourceManager();
-#pragma warning ("delete these or use boost GC shared_ptr")
+    // delete these or use boost GC shared_ptr
 
     g_map = new CMap();
 
@@ -206,18 +206,6 @@ void create_globals()
     } catch (const std::exception& ex) {
         throw std::format("ERROR: Could not load music overrides: {}", ex.what());
     }
-}
-
-void init_joysticks()
-{
-    SDL_InitSubSystem(SDL_INIT_JOYSTICK);
-    joystickcount = (short)SDL_NumJoysticks();
-    joysticks = new SDL_Joystick*[joystickcount];
-
-    for (short i = 0; i < joystickcount; i++)
-        joysticks[i] = SDL_JoystickOpen(i);
-
-    SDL_JoystickEventState(SDL_ENABLE);
 }
 
 void create_gamemodes()
@@ -337,6 +325,7 @@ void main_game()
     printf("-------------------------------------------------------------------------------\n");
     printf("\n---------------- startup ----------------\n");
 
+    App::registerSdlMetadata(TITLESTRING);
     ensureSettingsDir();
     create_globals();
 
@@ -358,15 +347,14 @@ void main_game()
 
     sfx_init();                     //init the sound system
     net_init();                     //init the networking
-
-    init_joysticks();
+    JoystickManager::instance().init();
 
     //currently this only sets the title, not the icon.
     //setting the icon isn't implemented in sdl ->  i'll ask on the mailing list
     char title[128];
     sprintf(title, "%s %s %s", TITLESTRING, GIT_REVISION, GIT_DATE);
     gfx_settitle(TITLESTRING);
-    SDL_ShowCursor(SDL_DISABLE);
+    SDL_HideCursor();
 
     printf("\n---------------- loading ----------------\n");
 
@@ -377,7 +365,7 @@ void main_game()
 
     create_gamemodes();
 
-    game_values.ReadBinaryConfig();
+    game_values.ReadConfig();
 
     //Assign the powerup weights to the selected preset
     for (short iPowerup = 0; iPowerup < NUM_POWERUPS; iPowerup++) {
@@ -427,6 +415,7 @@ void main_game()
     for (short i = 0; i < GAMEMODE_LAST; i++)
         delete gamemodes[i];
 
+    JoystickManager::instance().shutdown();
     sfx_close();
     gfx_close();
     net_close();

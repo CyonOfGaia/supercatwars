@@ -1,13 +1,14 @@
 #include "FileIO.h"
 
-#include "SDL_endian.h"
+#include <SDL3/SDL_endian.h>
 
 #include <cassert>
 #include <cstring>
+#include <format>
 #include <stdexcept>
-#include <vector>
 
 BinaryFile::BinaryFile(const char* path, const char* options)
+    : m_path(path)
 {
     fp = fopen(path, options);
 }
@@ -28,20 +29,46 @@ BinaryFile::~BinaryFile()
 
 void BinaryFile::fread_or_exception(void* ptr, size_t size, size_t count)
 {
-    if (fread(ptr, size, count, fp) != count)
-        throw std::runtime_error("File read error");
+    long pos = ftell(fp);
+    if (fread(ptr, size, count, fp) != count) {
+        std::string msg = std::format(
+            "File read error in {}\n"
+            "Tried to read {} bytes at position {}, but failed\n"
+            "The file might be damaged, or it's not in the expected format",
+            m_path, size * count, pos);
+        if (std::ferror(fp)) {
+            msg += "\nSystem message: ";
+            msg += std::strerror(errno);
+        }
+        throw std::runtime_error(std::move(msg));
+    }
 }
 
 void BinaryFile::fwrite_or_exception(const void* ptr, size_t size, size_t count)
 {
-    if (fwrite(ptr, size, count, fp) != count)
-        throw std::runtime_error("File write error");
+    long pos = ftell(fp);
+    if (fwrite(ptr, size, count, fp) != count) {
+        std::string msg = std::format(
+            "File write error in {}\n"
+            "Tried to write {} bytes at position {}, but failed",
+            m_path, size * count, pos);
+        if (std::ferror(fp)) {
+            msg += "\nSystem message: ";
+            msg += std::strerror(errno);
+        }
+        throw std::runtime_error(std::move(msg));
+    }
 }
 
 void BinaryFile::rewind()
 {
     if (fp)
         ::rewind(fp);
+}
+
+long BinaryFile::pos() const
+{
+    return fp ? ::ftell(fp) : 0;
 }
 
 void BinaryFile::write_i8(int8_t value)
@@ -85,6 +112,20 @@ void BinaryFile::write_bool(bool value)
     write_u8(value);
 }
 
+void BinaryFile::write_u32(uint32_t value)
+{
+#if (SDL_BYTEORDER == SDL_BIG_ENDIAN)
+    uint32_t tmp = value;
+
+    ((char*)&value)[0] = ((char*)&tmp)[3];
+    ((char*)&value)[1] = ((char*)&tmp)[2];
+    ((char*)&value)[2] = ((char*)&tmp)[1];
+    ((char*)&value)[3] = ((char*)&tmp)[0];
+#endif
+
+    fwrite_or_exception(&value, sizeof(uint32_t), 1);
+}
+
 void BinaryFile::write_float(float value)
 {
 #if (SDL_BYTEORDER == SDL_BIG_ENDIAN)
@@ -99,42 +140,21 @@ void BinaryFile::write_float(float value)
     fwrite_or_exception(&value, sizeof(float), 1);
 }
 
-void BinaryFile::write_string(const char* string)
-{
-    assert(string);
-    assert(strlen(string) < 254);
-
-    int len = strlen(string) + 1;
-    if (len > 255) {
-        len = 255;
-    }
-
-    write_u8(len);
-    fwrite_or_exception(string, sizeof(char), len);
-}
-
-void BinaryFile::write_string(const std::string& string)
-{
-    write_string(string.c_str());
-}
-
-void BinaryFile::write_string_long(const char* string)
-{
-    assert(string);
-    assert(strlen(string) < 254);
-
-    int len = strlen(string) + 1;
-    if (len > 255) {
-        len = 255;
-    }
-
-    write_i32(len);
-    fwrite_or_exception(string, sizeof(char), len);
-}
-
+// Writes an i32 that tells the byte length of the string data *including*
+// a terminating null byte, then the text data itself, with a null terminating byte
 void BinaryFile::write_string_long(const std::string& string)
 {
-    write_string_long(string.c_str());
+    if (string.length() > 255) {
+        std::string msg = std::format(
+            "File write error in {}\n"
+            "Tried to write a text that would take {} bytes, which is too long",
+            m_path, string.length());
+        throw std::runtime_error(std::move(msg));
+    }
+
+    // NOTE: `size()` doesn't include the terminating null byte
+    write_i32(string.size() + 1);
+    fwrite_or_exception(string.data(), sizeof(char), string.size() + 1);
 }
 
 void BinaryFile::write_raw(const void* source, size_t size)
@@ -233,6 +253,23 @@ void BinaryFile::read_i32_array(int32_t* target, size_t size)
 #endif
 }
 
+uint32_t BinaryFile::read_u32()
+{
+    uint32_t in;
+    fread_or_exception(&in, sizeof(uint32_t), 1);
+
+#if (SDL_BYTEORDER == SDL_BIG_ENDIAN)
+    uint32_t tmp = in;
+
+    ((char*)&in)[0] = ((char*)&tmp)[3];
+    ((char*)&in)[1] = ((char*)&tmp)[2];
+    ((char*)&in)[2] = ((char*)&tmp)[1];
+    ((char*)&in)[3] = ((char*)&tmp)[0];
+#endif
+
+    return in;
+}
+
 float BinaryFile::read_float()
 {
     float in;
@@ -250,50 +287,25 @@ float BinaryFile::read_float()
     return in;
 }
 
-void BinaryFile::read_string(char* target, size_t size)
+// Uses 32 bits to store the length of the string, then the text data,
+// including a terminating null byte
+std::string BinaryFile::read_string_long(size_t maxlen)
 {
-    assert(target);
-    assert(size > 0);
+    const int stored_len = read_i32();
+    if (stored_len <= 0)
+        return {};
 
-    const uint8_t len = read_u8();
-    if (len <= 0) {
-        target[0] = '\0';
-        return;
-    }
+    const size_t data_len = std::min<size_t>(stored_len, maxlen);
+    if (data_len == 0)
+        return {};
 
-    std::vector<char> string(len, '\0');
+    std::string text(data_len, '\0');
+    fread_or_exception(text.data(), sizeof(char), data_len);
 
-    fread_or_exception(string.data(), sizeof(char), len);
-    string[len - 1] = '\0';
+    // NOTE: The stored text always includes a terminating null byte
+    text.pop_back();
 
-    // if len < N, fills the rest with 0
-    // if len > N, copies the first N characters
-    strncpy(target, string.data(), size - 1);
-    target[size - 1] = 0;
-}
-
-// This it a variant of read_string, which uses
-// 32 bits to store the length of the string.
-void BinaryFile::read_string_long(char* target, size_t size)
-{
-    assert(target);
-    assert(size > 0);
-
-    const int len = read_i32();
-    if (len <= 0) {
-        target[0] = '\0';
-        return;
-    }
-
-    std::vector<char> string(len, '\0');
-
-    fread_or_exception(string.data(), sizeof(char), len);
-    string[len - 1] = '\0';
-
-    // if len < N, fills the rest with 0
-    // if len > N, copies the first N characters
-    strncpy(target, string.data(), size - 1);
-    target[size - 1] = 0;
+    return text;
 }
 
 void BinaryFile::read_raw(void* target, size_t size)

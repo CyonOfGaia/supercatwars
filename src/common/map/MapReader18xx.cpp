@@ -14,7 +14,7 @@ extern CTilesetManager* g_tilesetmanager;
 namespace {
 struct TilesetTranslation {
     short iID;
-    char szName[128];
+    std::string szName;
 };
 }  // namespace
 
@@ -67,7 +67,7 @@ void MapReader1800::read_tileset(BinaryFile& mapfile)
         if (iTilesetID > iMaxTilesetID)
             iMaxTilesetID = iTilesetID;
 
-        mapfile.read_string_long(translation[iTileset].szName, 128);
+        translation[iTileset].szName = mapfile.read_string_long(128);
     }
 
     translationid = new short[iMaxTilesetID + 1];
@@ -153,7 +153,7 @@ void MapReader1800::read_hazards(CMap& map, BinaryFile& mapfile)
 
     for (size_t idx = 0; idx < iNumMapHazards; idx++) {
         MapHazard hazard = {};
-        hazard.itype = mapfile.read_i32();
+        hazard.itype = static_cast<MapHazardType>(mapfile.read_i32()); // TODO: Error handling
         hazard.ix = mapfile.read_i32();
         hazard.iy = mapfile.read_i32();
 

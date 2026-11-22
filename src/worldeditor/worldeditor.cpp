@@ -20,6 +20,7 @@
 #include "FileIO.h"
 #include "FileList.h"
 #include "GameMode.h"
+#include "GameModeSettingsSerialization.h"
 #include "GameValues.h"
 #include "map.h"
 #include "MapList.h"
@@ -31,6 +32,7 @@
 #include "sfx.h"
 #include "TilesetManager.h"
 #include "world.h"
+#include "world/WorldMapIO.h"
 #include "WorldTourStop.h"
 #include "ui/MI_Button.h"
 #include "ui/MI_Image.h"
@@ -50,7 +52,8 @@
 #include "objects/moving/MO_Coin.h"
 #include "objects/overmap/WO_Area.h"
 
-#include "SDL_image.h"
+#include <SDL3/SDL_main.h>
+#include <SDL3_image/SDL_image.h>
 
 #include <algorithm>
 #include <cstdlib>
@@ -229,7 +232,7 @@ extern std::string RootDataDirectory;
 
 gfxSprite		spr_overlay, spr_overlayhole;
 
-void SDLCALL musicfinished(){}
+void SDLCALL musicfinished(void*, MIX_Track* rawptr){}
 
 CEyecandyContainer eyecandy[3];
 gfxSprite		spr_frontmap[2];
@@ -308,13 +311,13 @@ void DisplayStageDetails(bool fForce, short iStageId, short iMouseX, short iMous
 void updateworldsurface();
 void takescreenshot();
 
-bool CheckKey(const Uint8 * keystate, SDL_Keycode key) {
-    return keystate[SDL_GetScancodeFromKey(key)];
+bool CheckKey(const bool* keystate, SDL_Keycode key) {
+    return keystate[SDL_GetScancodeFromKey(key, nullptr)];
 }
 
 bool ignoreclick = false;
 
-char findstring[FILEBUFSIZE] = "";
+std::string findstring;
 
 short g_musiccategorydisplaytimer = 0;
 
@@ -469,17 +472,19 @@ int main(int argc, char *argv[])
 
 void inner_main()
 {
+    printf("-------------------------------------------------------------------------------\n");
+    printf(" %s %s\n", TITLESTRING, MAPTITLESTRING);
+    printf("-------------------------------------------------------------------------------\n");
+    printf("\n---------------- startup ----------------\n");
+
+    App::registerSdlMetadata(TITLESTRING);
+
     ensureSettingsDir();
 
     /* This must occur before any data files are loaded */
     Initialize_Paths();
 
 	bool done;
-
-	printf("-------------------------------------------------------------------------------\n");
-	printf(" %s %s\n", TITLESTRING, MAPTITLESTRING);
-	printf("-------------------------------------------------------------------------------\n");
-	printf("\n---------------- startup ----------------\n");
 
     int saved_col = 0, saved_row = 0;
     {
@@ -489,7 +494,7 @@ void inner_main()
             saved_col = editor_settings.read_i32();
             saved_row = editor_settings.read_i32();
             g_fFullScreen = editor_settings.read_bool();
-            editor_settings.read_string_long(findstring, FILEBUFSIZE);
+            findstring = editor_settings.read_string_long(FILEBUFSIZE);
         }
     }
 
@@ -617,7 +622,7 @@ void inner_main()
     worldlist->find(findstring);
     game_values.worldindex = worldlist->currentIndex();
 	loadcurrentworld();
-	findstring[0] = 0;  //clear out the find string so that pressing "f" will give you the find dialog
+	findstring.clear();  //clear out the find string so that pressing "f" will give you the find dialog
 
     if (saved_row >= 0 && saved_row <= iWorldHeight - 15 && saved_col >= 0 && saved_col <= iWorldWidth - 20) {
 		draw_offset_row = saved_row;
@@ -626,7 +631,7 @@ void inner_main()
 	}
 
 	//Setup input for menus
-	game_values.inputConfiguration[0][0].iDevice = DEVICE_KEYBOARD;
+	game_values.inputConfiguration[0][0].iDevice = DEVICE_KEYBOARD_ID;
     for (short iInputState = 0; iInputState < 2; iInputState++) { //for game/menu
         for (short iKey = 0; iKey < NUM_KEYS; iKey++) {
 			game_values.inputConfiguration[0][0].inputGameControls[iInputState].keys[iKey] = controlkeys[0][iInputState][0][iKey];
@@ -844,15 +849,14 @@ void inner_main()
 
 	mModeOptionsMenu = new UI_ModeOptionsMenu();
 
-	g_wvVehicleStamp.iDrawSprite = 0;
-	g_wvVehicleStamp.iActionId = 0;
-	g_wvVehicleStamp.currentTile.x = 0;
-	g_wvVehicleStamp.currentTile.y = 0;
-	g_wvVehicleStamp.iMinMoves = 5;
-	g_wvVehicleStamp.iMaxMoves = 8;
-	g_wvVehicleStamp.fSpritePaces = true;
-	g_wvVehicleStamp.iDrawDirection = 0;
-	g_wvVehicleStamp.iBoundary = 0;
+	g_wvVehicleStamp.setDrawSprite(0);
+	g_wvVehicleStamp.setActionId(0);
+	g_wvVehicleStamp.setCurrentTile(0, 0);
+	g_wvVehicleStamp.setMinMoves(5);
+	g_wvVehicleStamp.setMaxMoves(8);
+	g_wvVehicleStamp.setSpritePacing(true);
+	g_wvVehicleStamp.setDrawDirection(0);
+	g_wvVehicleStamp.setBoundary(0);
 
 	//Create Vehicle Menu
 	miVehicleSpriteField = new MI_ImageSelectField(&rm->spr_selectfield, &spr_vehicleicons, 70, 80, "Sprite", 500, 150, 16, 16);
@@ -865,11 +869,11 @@ void inner_main()
 	miVehicleSpriteField->add("Lord Iridium", 6);
 	miVehicleSpriteField->add("Airship", 7);
 	miVehicleSpriteField->add("Commander Mizu", 8);
-	miVehicleSpriteField->setOutputPtr(&g_wvVehicleStamp.iDrawSprite);
-	miVehicleSpriteField->setCurrentValue(g_wvVehicleStamp.iDrawSprite);
+	miVehicleSpriteField->setOnChanged([](short sprite) { g_wvVehicleStamp.setDrawSprite(sprite); });
+	miVehicleSpriteField->setCurrentValue(g_wvVehicleStamp.getDrawSprite());
 
 	miVehicleStageField = new MI_ImageSelectField(&rm->spr_selectfield, &rm->menu_mode_small, 70, 120, "Stage", 500, 150, 16, 16);
-	miVehicleStageField->setOutputPtr(&g_wvVehicleStamp.iActionId);
+	miVehicleStageField->setOnChanged([](short stage) { g_wvVehicleStamp.setActionId(stage); });
 
 	miVehicleMinMovesField = new MI_SelectField<short>(&rm->spr_selectfield, 70, 160, "Min Moves", 500, 150);
 
@@ -879,8 +883,8 @@ void inner_main()
 		miVehicleMinMovesField->add(szMinMoves, iMinMoves);
 	}
 
-	miVehicleMinMovesField->setOutputPtr(&g_wvVehicleStamp.iMinMoves);
-	miVehicleMinMovesField->setCurrentValue(g_wvVehicleStamp.iMinMoves);
+	miVehicleMinMovesField->setOnChanged([](short minmoves) { g_wvVehicleStamp.setMinMoves(minmoves); });
+	miVehicleMinMovesField->setCurrentValue(g_wvVehicleStamp.getMinMoves());
 	miVehicleMinMovesField->setItemChangedCode(MENU_CODE_VEHICLE_MIN_MOVES_CHANGED);
 	miVehicleMinMovesField->allowWrap(false);
 	miVehicleMinMovesField->allowFastScroll(true);
@@ -893,8 +897,8 @@ void inner_main()
 		miVehicleMaxMovesField->add(szMaxMoves, iMaxMoves);
 	}
 
-	miVehicleMaxMovesField->setOutputPtr(&g_wvVehicleStamp.iMaxMoves);
-	miVehicleMaxMovesField->setCurrentValue(g_wvVehicleStamp.iMaxMoves);
+	miVehicleMaxMovesField->setOnChanged([](short maxmoves) { g_wvVehicleStamp.setMaxMoves(maxmoves); });
+	miVehicleMaxMovesField->setCurrentValue(g_wvVehicleStamp.getMaxMoves());
 	miVehicleMaxMovesField->setItemChangedCode(MENU_CODE_VEHICLE_MAX_MOVES_CHANGED);
 	miVehicleMaxMovesField->allowWrap(false);
 	miVehicleMaxMovesField->allowFastScroll(true);
@@ -902,15 +906,15 @@ void inner_main()
 	miVehiclePacesField = new MI_SelectField<bool>(&rm->spr_selectfield, 70, 240, "Paces", 500, 150);
 	miVehiclePacesField->add("No", false);
 	miVehiclePacesField->add("Yes", true);
-	miVehiclePacesField->setOutputPtr(&g_wvVehicleStamp.fSpritePaces);
-	miVehiclePacesField->setCurrentValue(g_wvVehicleStamp.fSpritePaces ? 1 : 0);
+	miVehiclePacesField->setOnChanged([](bool paces) { g_wvVehicleStamp.setSpritePacing(paces); });
+	miVehiclePacesField->setCurrentValue(g_wvVehicleStamp.isSpritePacing() ? 1 : 0);
 	miVehiclePacesField->setAutoAdvance(true);
 
 	miVehicleDirectionField = new MI_SelectField<short>(&rm->spr_selectfield, 70, 280, "Direction", 500, 150);
 	miVehicleDirectionField->add("Left", false);
 	miVehicleDirectionField->add("Right", true);
-	miVehicleDirectionField->setOutputPtr(&g_wvVehicleStamp.iDrawDirection);
-	miVehicleDirectionField->setCurrentValue(g_wvVehicleStamp.iDrawDirection);
+	miVehicleDirectionField->setOnChanged([](short direction) { g_wvVehicleStamp.setDrawDirection(direction); });
+	miVehicleDirectionField->setCurrentValue(g_wvVehicleStamp.getDrawDirection());
 	miVehicleDirectionField->setAutoAdvance(true);
 
 	miVehicleBoundaryField = new MI_SelectField<short>(&rm->spr_selectfield, 70, 320, "Boundary", 500, 150);
@@ -922,8 +926,8 @@ void inner_main()
 		miVehicleBoundaryField->add(szBoundary, iBoundary);
 	}
 
-	miVehicleBoundaryField->setOutputPtr(&g_wvVehicleStamp.iBoundary);
-	miVehicleBoundaryField->setCurrentValue(g_wvVehicleStamp.iBoundary);
+	miVehicleBoundaryField->setOnChanged([](short boundary) { g_wvVehicleStamp.setBoundary(boundary); });
+	miVehicleBoundaryField->setCurrentValue(g_wvVehicleStamp.getBoundary());
 	miVehicleBoundaryField->allowFastScroll(true);
 
     miVehicleCreateButton = new MI_Button(&rm->spr_selectfield, 430, 360, "OK", 140, TextAlign::CENTER);
@@ -1049,7 +1053,7 @@ void inner_main()
 
 	WriteVehiclesIntoWorld();
 	WriteWarpsIntoWorld();
-	g_worldmap.Save(convertPath("worlds/ZZworldeditor.txt").c_str());
+	saveWorldMap(g_worldmap, convertPath("worlds/ZZworldeditor.txt"));
 
     {
         const std::string options_path(GetHomeDirectory() + "worldeditor.bin");
@@ -1086,21 +1090,21 @@ int editor_edit()
 			//handle messages
             while (SDL_PollEvent(&event)) {
                 switch (event.type) {
-                case SDL_KEYDOWN: {
-                    const SDL_Keycode key = event.key.keysym.sym;
+                case SDL_EVENT_KEY_DOWN: {
+                    const SDL_Keycode key = event.key.key;
 
                     if (key == SDLK_LEFT) {
 							fSelectedYes = true;
                     } else if (key == SDLK_RIGHT) {
 							fSelectedYes = false;
-                    } else if (event.key.keysym.sym == SDLK_KP_ENTER || event.key.keysym.sym == SDLK_RETURN) {
+                    } else if (event.key.key == SDLK_KP_ENTER || event.key.key == SDLK_RETURN) {
 							if (fSelectedYes)
 								return EDITOR_QUIT;
 
 							fExiting = false;
 						}
 #ifdef _DEBUG
-                    else if (event.key.keysym.sym == SDLK_ESCAPE) {
+                    else if (event.key.key == SDLK_ESCAPE) {
 							return EDITOR_QUIT;
 						}
 #endif
@@ -1111,14 +1115,14 @@ int editor_edit()
 			//handle messages
             while (SDL_PollEvent(&event)) {
                 switch (event.type) {
-                case SDL_QUIT: {
+                case SDL_EVENT_QUIT: {
 						done = true;
 						break;
 					}
 
-                case SDL_KEYDOWN: {
-                    const Uint8 * keystate = SDL_GetKeyboardState(NULL);
-                    if (event.key.keysym.sym == SDLK_ESCAPE) {
+                case SDL_EVENT_KEY_DOWN: {
+                    const bool* keystate = SDL_GetKeyboardState(NULL);
+                    if (event.key.key == SDLK_ESCAPE) {
 							if (g_musiccategorydisplaytimer > 0)
 								g_musiccategorydisplaytimer = 0;
                         else if (edit_mode != 0) {
@@ -1130,48 +1134,48 @@ int editor_edit()
 							}
 						}
 
-                    if (event.key.keysym.mod & (KMOD_LALT | KMOD_RALT)) {
-                        if (event.key.keysym.sym == SDLK_RETURN) {
+                    if (event.key.mod & (SDL_KMOD_LALT | SDL_KMOD_RALT)) {
+                        if (event.key.key == SDLK_RETURN) {
 								g_fFullScreen = !g_fFullScreen;
 								gfx_changefullscreen(g_fFullScreen);
 								blitdest = screen;
 							}
 						}
 
-						if (event.key.keysym.sym == SDLK_INSERT)
+						if (event.key.key == SDLK_INSERT)
 							takescreenshot();
 
-						if (event.key.keysym.sym == SDLK_1)
+						if (event.key.key == SDLK_1)
 							return EDITOR_WATER;
 
-						if (event.key.keysym.sym == SDLK_2)
+						if (event.key.key == SDLK_2)
 							return EDITOR_BACKGROUND;
 
-						if (event.key.keysym.sym == SDLK_3)
+						if (event.key.key == SDLK_3)
 							return EDITOR_STAGEFOREGROUND;
 
-						if (event.key.keysym.sym == SDLK_4)
+						if (event.key.key == SDLK_4)
 							return EDITOR_PATHSPRITE;
 
-						if (event.key.keysym.sym == SDLK_5)
+						if (event.key.key == SDLK_5)
 							return EDITOR_STRUCTUREFOREGROUND;
 
-						if (event.key.keysym.sym == SDLK_6)
+						if (event.key.key == SDLK_6)
 							return EDITOR_BRIDGES;
 
-						if (event.key.keysym.sym == SDLK_t)
+						if (event.key.key == SDLK_T)
 							return EDITOR_TYPE;
 
-						if (event.key.keysym.sym == SDLK_e)
+						if (event.key.key == SDLK_E)
 							return EDITOR_STAGE;
 
-						if (event.key.keysym.sym == SDLK_p)
+						if (event.key.key == SDLK_P)
 							return EDITOR_PATH;
 
-						if (event.key.keysym.sym == SDLK_v)
+						if (event.key.key == SDLK_V)
 							return EDITOR_VEHICLES;
 
-                    if (event.key.keysym.sym == SDLK_SPACE) {
+                    if (event.key.key == SDLK_SPACE) {
 							g_fShowStagePreviews = !g_fShowStagePreviews;
 							if (g_fShowStagePreviews)
 								SetDisplayMessage(60, "Stage Previews", "Preview popups", "have been", "enabled.");
@@ -1179,7 +1183,7 @@ int editor_edit()
 								SetDisplayMessage(60, "Stage Previews", "Preview popups", "have been", "disabled.");
 						}
 
-                    if (edit_mode == 5 && event.key.keysym.sym == SDLK_c) {
+                    if (edit_mode == 5 && event.key.key == SDLK_C) {
 							short iButtonX = mouse_x - draw_offset_x;
 							short iButtonY = mouse_y - draw_offset_y;
 							short iCol = iButtonX / TILESIZE + draw_offset_col;
@@ -1188,22 +1192,22 @@ int editor_edit()
 							std::vector<WorldVehicle*>::iterator itr = vehiclelist.begin(), lim = vehiclelist.end();
                         while (itr != lim) {
 								WorldVehicle * vehicle = *itr;
-                            if (vehicle->currentTile.x == iCol && vehicle->currentTile.y == iRow) {
-									g_wvVehicleStamp.iDrawSprite = vehicle->iDrawSprite;
-									g_wvVehicleStamp.iActionId = vehicle->iActionId;
-									g_wvVehicleStamp.iMinMoves = vehicle->iMinMoves;
-									g_wvVehicleStamp.iMaxMoves = vehicle->iMaxMoves;
-									g_wvVehicleStamp.fSpritePaces = vehicle->fSpritePaces;
-									g_wvVehicleStamp.iDrawDirection = vehicle->iDrawDirection;
-									g_wvVehicleStamp.iBoundary = vehicle->iBoundary;
+                            if (vehicle->getCurrentTile().x == iCol && vehicle->getCurrentTile().y == iRow) {
+									g_wvVehicleStamp.setDrawSprite(vehicle->getDrawSprite());
+									g_wvVehicleStamp.setActionId(vehicle->getActionId());
+									g_wvVehicleStamp.setMinMoves(vehicle->getMinMoves());
+									g_wvVehicleStamp.setMaxMoves(vehicle->getMaxMoves());
+									g_wvVehicleStamp.setSpritePacing(vehicle->isSpritePacing());
+									g_wvVehicleStamp.setDrawDirection(vehicle->getDrawDirection());
+									g_wvVehicleStamp.setBoundary(vehicle->getBoundary());
 
-									miVehicleSpriteField->setCurrentValue(g_wvVehicleStamp.iDrawSprite);
-									miVehicleStageField->setCurrentValue(g_wvVehicleStamp.iActionId);
-									miVehicleMinMovesField->setCurrentValue(g_wvVehicleStamp.iMinMoves);
-									miVehicleMaxMovesField->setCurrentValue(g_wvVehicleStamp.iMaxMoves);
-									miVehiclePacesField->setCurrentValue(g_wvVehicleStamp.fSpritePaces ? 1 : 0);
-									miVehicleDirectionField->setCurrentValue(g_wvVehicleStamp.iDrawDirection);
-									miVehicleBoundaryField->setCurrentValue(g_wvVehicleStamp.iBoundary);
+									miVehicleSpriteField->setCurrentValue(g_wvVehicleStamp.getDrawSprite());
+									miVehicleStageField->setCurrentValue(g_wvVehicleStamp.getActionId());
+									miVehicleMinMovesField->setCurrentValue(g_wvVehicleStamp.getMinMoves());
+									miVehicleMaxMovesField->setCurrentValue(g_wvVehicleStamp.getMaxMoves());
+									miVehiclePacesField->setCurrentValue(g_wvVehicleStamp.isSpritePacing() ? 1 : 0);
+									miVehicleDirectionField->setCurrentValue(g_wvVehicleStamp.getDrawDirection());
+									miVehicleBoundaryField->setCurrentValue(g_wvVehicleStamp.getBoundary());
 
 									return EDITOR_VEHICLES;
 								}
@@ -1212,53 +1216,53 @@ int editor_edit()
 							}
 						}
 
-						if (event.key.keysym.sym == SDLK_w)
+						if (event.key.key == SDLK_W)
 							return EDITOR_WARP;
 
-						if (event.key.keysym.sym == SDLK_i)
+						if (event.key.key == SDLK_I)
 							return EDITOR_START_ITEMS;
 
-						if (event.key.keysym.sym == SDLK_b)
+						if (event.key.key == SDLK_B)
 							return EDITOR_BOUNDARY;
 
-						if (event.key.keysym.sym == SDLK_a)
+						if (event.key.key == SDLK_A)
 							fAutoPaint = !fAutoPaint;
 
-                    if (event.key.keysym.sym == SDLK_r) {
+                    if (event.key.key == SDLK_R) {
 							if (g_musiccategorydisplaytimer > 0)
-								g_worldmap.iMusicCategory++;
+								g_worldmap.nextMusicCategory();
 
 							g_musiccategorydisplaytimer = 90;
 						}
 
-                    if (event.key.keysym.sym == SDLK_s) {
+                    if (event.key.key == SDLK_S) {
 							if (CheckKey(keystate, SDLK_LSHIFT) || CheckKey(keystate, SDLK_RSHIFT))
 								return SAVE_AS;
 
 							return SAVE;
 						}
 
-                    if (event.key.keysym.sym == SDLK_f) {
-							if (CheckKey(keystate, SDLK_LSHIFT) || CheckKey(keystate, SDLK_RSHIFT) || findstring[0] == '\0')
+                    if (event.key.key == SDLK_F) {
+							if (CheckKey(keystate, SDLK_LSHIFT) || CheckKey(keystate, SDLK_RSHIFT) || findstring.empty())
 								return FIND;
 
 							findcurrentstring();
 						}
 
-                    if (event.key.keysym.sym == SDLK_DELETE && (CheckKey(keystate, SDLK_LCTRL) || CheckKey(keystate, SDLK_RCTRL))) {
+                    if (event.key.key == SDLK_DELETE && (CheckKey(keystate, SDLK_LCTRL) || CheckKey(keystate, SDLK_RCTRL))) {
 							return CLEAR_WORLD;
 						}
 
-						if (event.key.keysym.sym == SDLK_n)
+						if (event.key.key == SDLK_N)
 							return NEW_WORLD;
 
-						if (event.key.keysym.sym == SDLK_k)
+						if (event.key.key == SDLK_K)
 							return RESIZE_WORLD;
 
-						if (event.key.keysym.sym == SDLK_h || event.key.keysym.sym == SDLK_F1)
+						if (event.key.key == SDLK_H || event.key.key == SDLK_F1)
 							return DISPLAY_HELP;
 
-                    if (event.key.keysym.sym == SDLK_UP) {
+                    if (event.key.key == SDLK_UP) {
                         if (draw_offset_row > 0) {
 								draw_offset_row--;
 								updateworldsurface();
@@ -1268,7 +1272,7 @@ int editor_edit()
 
 								iStageDisplay = -1;
 							}
-                    } else if (event.key.keysym.sym == SDLK_DOWN) {
+                    } else if (event.key.key == SDLK_DOWN) {
                         if (draw_offset_row < iWorldHeight - 15) {
 								draw_offset_row++;
 								updateworldsurface();
@@ -1278,7 +1282,7 @@ int editor_edit()
 
 								iStageDisplay = -1;
 							}
-                    } else if (event.key.keysym.sym == SDLK_LEFT) {
+                    } else if (event.key.key == SDLK_LEFT) {
                         if (draw_offset_col > 0) {
 								draw_offset_col--;
 								updateworldsurface();
@@ -1288,7 +1292,7 @@ int editor_edit()
 
 								iStageDisplay = -1;
 							}
-                    } else if (event.key.keysym.sym == SDLK_RIGHT) {
+                    } else if (event.key.key == SDLK_RIGHT) {
                         if (draw_offset_col < iWorldWidth - 20) {
 								draw_offset_col++;
 								updateworldsurface();
@@ -1300,7 +1304,7 @@ int editor_edit()
 							}
 						}
 
-                    if (event.key.keysym.sym == SDLK_PAGEUP) {
+                    if (event.key.key == SDLK_PAGEUP) {
 							if (--game_values.worldindex < 0)
                             game_values.worldindex = worldlist->count() - 1;
 
@@ -1311,8 +1315,8 @@ int editor_edit()
 							iOldStageId = -1;
 						}
 
-                    if (event.key.keysym.sym == SDLK_PAGEDOWN) {
-                        if (++game_values.worldindex >= worldlist->count())
+                    if (event.key.key == SDLK_PAGEDOWN) {
+                        if (++game_values.worldindex >= static_cast<short>(worldlist->count()))
 								game_values.worldindex = 0;
 
                         worldlist->next();
@@ -1325,9 +1329,9 @@ int editor_edit()
 						break;
 					}
 
-                case SDL_KEYUP: {
-						if (event.key.keysym.sym == SDLK_UP || event.key.keysym.sym == SDLK_DOWN ||
-                            event.key.keysym.sym == SDLK_LEFT || event.key.keysym.sym == SDLK_RIGHT) {
+                case SDL_EVENT_KEY_UP: {
+						if (event.key.key == SDLK_UP || event.key.key == SDLK_DOWN ||
+                            event.key.key == SDLK_LEFT || event.key.key == SDLK_RIGHT) {
 							view_repeat_direction = -1;
 							view_repeat_timer = 0;
 						}
@@ -1335,7 +1339,7 @@ int editor_edit()
 						break;
 					}
 
-                case SDL_MOUSEBUTTONDOWN: {
+                case SDL_EVENT_MOUSE_BUTTON_DOWN: {
 						short iButtonX = bound_to_window_w(event.button.x) - draw_offset_x;
 						short iButtonY = bound_to_window_h(event.button.y) - draw_offset_y;
 						short iCol = iButtonX / TILESIZE + draw_offset_col;
@@ -1344,10 +1348,10 @@ int editor_edit()
                     if (iButtonX >= 0 && iButtonY >= 0 && iButtonX < iWorldWidth * TILESIZE && iButtonY < iWorldHeight * TILESIZE) {
                         if (event.button.button == SDL_BUTTON_LEFT && !ignoreclick) {
                             if (edit_mode == 0) { //selected background
-                                if (g_worldmap.tiles.at(iCol, iRow).iBackgroundSprite != set_tile || fAutoPaint) {
+                                if (g_worldmap.getTile(iCol, iRow).iBackgroundSprite != set_tile || fAutoPaint) {
 										bool fNeedUpdate = false;
-                                    if (g_worldmap.tiles.at(iCol, iRow).iBackgroundSprite != set_tile) {
-											g_worldmap.tiles.at(iCol, iRow).iBackgroundSprite = set_tile;
+                                    if (g_worldmap.getTile(iCol, iRow).iBackgroundSprite != set_tile) {
+											g_worldmap.getTile(iCol, iRow).iBackgroundSprite = set_tile;
 											fNeedUpdate = true;
 										}
 
@@ -1360,33 +1364,33 @@ int editor_edit()
 											updateworldsurface();
 									}
                             } else if (edit_mode == 1) { //selected foreground
-                                if (g_worldmap.tiles.at(iCol, iRow).iForegroundSprite != set_tile) {
-										g_worldmap.tiles.at(iCol, iRow).iForegroundSprite = set_tile;
+                                if (g_worldmap.getTile(iCol, iRow).iForegroundSprite != set_tile) {
+										g_worldmap.getTile(iCol, iRow).iForegroundSprite = set_tile;
 										updateworldsurface();
 
 										if (set_tile >= WORLD_BRIDGE_SPRITE_OFFSET && set_tile <= WORLD_BRIDGE_SPRITE_OFFSET + 3)
-											g_worldmap.tiles.at(iCol, iRow).iConnectionType = set_tile - WORLD_BRIDGE_SPRITE_OFFSET + 12;
+											g_worldmap.getTile(iCol, iRow).iConnectionType = set_tile - WORLD_BRIDGE_SPRITE_OFFSET + 12;
 									}
                             } else if (edit_mode == 2) { //selected connection
-									g_worldmap.tiles.at(iCol, iRow).iConnectionType = set_tile;
+									g_worldmap.getTile(iCol, iRow).iConnectionType = set_tile;
 
 									if (fAutoPaint)
 										UpdatePath(iCol, iRow);
                             } else if (edit_mode == 3) { //selected type
 									//start tiles
                                 if (set_tile <= 1) {
-                                    if (g_worldmap.tiles.at(iCol, iRow).iForegroundSprite != set_tile + WORLD_START_SPRITE_OFFSET) {
-											g_worldmap.tiles.at(iCol, iRow).iType = 1;
-											g_worldmap.tiles.at(iCol, iRow).iForegroundSprite = set_tile + WORLD_START_SPRITE_OFFSET;
+                                    if (g_worldmap.getTile(iCol, iRow).iForegroundSprite != set_tile + WORLD_START_SPRITE_OFFSET) {
+											g_worldmap.getTile(iCol, iRow).iType = 1;
+											g_worldmap.getTile(iCol, iRow).iForegroundSprite = set_tile + WORLD_START_SPRITE_OFFSET;
 											updateworldsurface();
 										}
                                 } else if (set_tile <= 5) { //doors
-                                    if (g_worldmap.tiles.at(iCol, iRow).iType != set_tile) {
+                                    if (g_worldmap.getTile(iCol, iRow).iType != set_tile) {
 											//if the door was placed on a start tile
-											if (g_worldmap.tiles.at(iCol, iRow).iType == 1)
-												g_worldmap.tiles.at(iCol, iRow).iForegroundSprite = 0;
+											if (g_worldmap.getTile(iCol, iRow).iType == 1)
+												g_worldmap.getTile(iCol, iRow).iForegroundSprite = 0;
 
-											g_worldmap.tiles.at(iCol, iRow).iType = set_tile;
+											g_worldmap.getTile(iCol, iRow).iType = set_tile;
 											updateworldsurface();
 										}
 									}
@@ -1394,8 +1398,8 @@ int editor_edit()
 									short iAdjustedTile = AdjustForeground(set_tile, iCol, iRow);
 									bool fNeedUpdate = false;
 
-                                if (!fAutoPaint && g_worldmap.tiles.at(iCol, iRow).iForegroundSprite != iAdjustedTile) {
-										g_worldmap.tiles.at(iCol, iRow).iForegroundSprite = iAdjustedTile;
+                                if (!fAutoPaint && g_worldmap.getTile(iCol, iRow).iForegroundSprite != iAdjustedTile) {
+										g_worldmap.getTile(iCol, iRow).iForegroundSprite = iAdjustedTile;
 										fNeedUpdate = true;
 									}
 
@@ -1403,7 +1407,7 @@ int editor_edit()
                                 if (fAutoPaint) {
 										short iOldTiles[9];
 										GetForegroundTileValues(iCol, iRow, iOldTiles);
-										g_worldmap.tiles.at(iCol, iRow).iForegroundSprite = iAdjustedTile;
+										g_worldmap.getTile(iCol, iRow).iForegroundSprite = iAdjustedTile;
 										UpdatePathSprite(iCol, iRow);
 
 										if (ForegroundTileValuesChanged(iCol, iRow, iOldTiles))
@@ -1417,28 +1421,28 @@ int editor_edit()
                             } else if (edit_mode == 6) { //selected warp
 									AddWarpToTile(iCol, iRow, set_tile);
                             } else if (edit_mode == 7) { //water
-                                if (g_worldmap.tiles.at(iCol, iRow).iBackgroundWater != set_tile) {
-										g_worldmap.tiles.at(iCol, iRow).iBackgroundWater = set_tile;
+                                if (g_worldmap.getTile(iCol, iRow).iBackgroundWater != set_tile) {
+										g_worldmap.getTile(iCol, iRow).iBackgroundWater = set_tile;
 										updateworldsurface();
 									}
                             } else if (edit_mode == 8) { //boundary
-									g_worldmap.tiles.at(iCol, iRow).iVehicleBoundary = set_tile;
+									g_worldmap.getTile(iCol, iRow).iVehicleBoundary = set_tile;
                             } else if (edit_mode == 9) {
 									//if the stage was placed on a start tile
-                                if (g_worldmap.tiles.at(iCol, iRow).iType == 1) {
-										g_worldmap.tiles.at(iCol, iRow).iForegroundSprite = 0;
+                                if (g_worldmap.getTile(iCol, iRow).iType == 1) {
+										g_worldmap.getTile(iCol, iRow).iForegroundSprite = 0;
 										updateworldsurface();
 									}
 
-									g_worldmap.tiles.at(iCol, iRow).iType = set_tile;
+									g_worldmap.getTile(iCol, iRow).iType = set_tile;
 								}
                         } else if (event.button.button == SDL_BUTTON_RIGHT) {
                             if (edit_mode == 0) {
-                                if (g_worldmap.tiles.at(iCol, iRow).iBackgroundSprite != 0 || fAutoPaint) {
+                                if (g_worldmap.getTile(iCol, iRow).iBackgroundSprite != 0 || fAutoPaint) {
 										bool fNeedUpdate = false;
 
-                                    if (g_worldmap.tiles.at(iCol, iRow).iBackgroundSprite != 0) {
-											g_worldmap.tiles.at(iCol, iRow).iBackgroundSprite = 0;
+                                    if (g_worldmap.getTile(iCol, iRow).iBackgroundSprite != 0) {
+											g_worldmap.getTile(iCol, iRow).iBackgroundSprite = 0;
 											fNeedUpdate = true;
 										}
 
@@ -1451,30 +1455,30 @@ int editor_edit()
 											updateworldsurface();
 									}
                             } else if (edit_mode == 1) {
-                                if (g_worldmap.tiles.at(iCol, iRow).iForegroundSprite != 0) {
-										g_worldmap.tiles.at(iCol, iRow).iForegroundSprite = 0;
+                                if (g_worldmap.getTile(iCol, iRow).iForegroundSprite != 0) {
+										g_worldmap.getTile(iCol, iRow).iForegroundSprite = 0;
 										updateworldsurface();
 									}
                             } else if (edit_mode == 2) {
-									g_worldmap.tiles.at(iCol, iRow).iConnectionType = 0;
+									g_worldmap.getTile(iCol, iRow).iConnectionType = 0;
 
 									if (fAutoPaint)
 										UpdatePath(iCol, iRow);
                             } else if (edit_mode == 3) { //selected start/door
-                                if (g_worldmap.tiles.at(iCol, iRow).iType == 1) {
-										g_worldmap.tiles.at(iCol, iRow).iForegroundSprite = 0;
+                                if (g_worldmap.getTile(iCol, iRow).iType == 1) {
+										g_worldmap.getTile(iCol, iRow).iForegroundSprite = 0;
 										updateworldsurface();
-                                } else if (g_worldmap.tiles.at(iCol, iRow).iType <= 5) {
-										g_worldmap.tiles.at(iCol, iRow).iType = 0;
+                                } else if (g_worldmap.getTile(iCol, iRow).iType <= 5) {
+										g_worldmap.getTile(iCol, iRow).iType = 0;
 										updateworldsurface();
 									}
 
-									g_worldmap.tiles.at(iCol, iRow).iType = 0;
+									g_worldmap.getTile(iCol, iRow).iType = 0;
                             } else if (edit_mode == 4) {
 									bool fNeedUpdate = false;
 
-                                if (!fAutoPaint && g_worldmap.tiles.at(iCol, iRow).iForegroundSprite != 0) {
-										g_worldmap.tiles.at(iCol, iRow).iForegroundSprite = 0;
+                                if (!fAutoPaint && g_worldmap.getTile(iCol, iRow).iForegroundSprite != 0) {
+										g_worldmap.getTile(iCol, iRow).iForegroundSprite = 0;
 										fNeedUpdate = true;
 									}
 
@@ -1482,7 +1486,7 @@ int editor_edit()
                                 if (fAutoPaint) {
 										short iOldTiles[9];
 										GetForegroundTileValues(iCol, iRow, iOldTiles);
-										g_worldmap.tiles.at(iCol, iRow).iForegroundSprite = 0;
+										g_worldmap.getTile(iCol, iRow).iForegroundSprite = 0;
 										UpdatePathSprite(iCol, iRow);
 
 										if (ForegroundTileValuesChanged(iCol, iRow, iOldTiles))
@@ -1497,14 +1501,14 @@ int editor_edit()
                             } else if (edit_mode == 6) {
 									RemoveWarpFromTile(iCol, iRow);
                             } else if (edit_mode == 7) { //water
-                                if (g_worldmap.tiles.at(iCol, iRow).iBackgroundWater != 0) {
-										g_worldmap.tiles.at(iCol, iRow).iBackgroundWater = 0;
+                                if (g_worldmap.getTile(iCol, iRow).iBackgroundWater != 0) {
+										g_worldmap.getTile(iCol, iRow).iBackgroundWater = 0;
 										updateworldsurface();
 									}
                             } else if (edit_mode == 8) { //boundary
-									g_worldmap.tiles.at(iCol, iRow).iVehicleBoundary = 0;
+									g_worldmap.getTile(iCol, iRow).iVehicleBoundary = 0;
                             } else if (edit_mode == 9) { //stage
-									g_worldmap.tiles.at(iCol, iRow).iType = 0;
+									g_worldmap.getTile(iCol, iRow).iType = 0;
 									iStageDisplay = -1;
 								}
 							}
@@ -1513,7 +1517,7 @@ int editor_edit()
 						break;
 					}
 					//Painting tiles with mouse movement
-                case SDL_MOUSEMOTION: {
+                case SDL_EVENT_MOUSE_MOTION: {
 						bound_mouse_motion_coords();
 						short iButtonX = bound_to_window_w(event.motion.x) - draw_offset_x;
 						short iButtonY = bound_to_window_h(event.motion.y) - draw_offset_y;
@@ -1521,12 +1525,12 @@ int editor_edit()
 						short iRow = (iButtonY >> 5) + draw_offset_row;
 
                     if (iButtonX >= 0 && iButtonY >= 0 && iButtonX < iWorldWidth * TILESIZE && iButtonY < iWorldHeight * TILESIZE) {
-                        if (event.motion.state == SDL_BUTTON(SDL_BUTTON_LEFT) && !ignoreclick) {
+                        if (event.motion.state == SDL_BUTTON_MASK(SDL_BUTTON_LEFT) && !ignoreclick) {
                             if (edit_mode == 0) { //selected background
-                                if (g_worldmap.tiles.at(iCol, iRow).iBackgroundSprite != set_tile || fAutoPaint) {
+                                if (g_worldmap.getTile(iCol, iRow).iBackgroundSprite != set_tile || fAutoPaint) {
 										bool fNeedUpdate = false;
-                                    if (g_worldmap.tiles.at(iCol, iRow).iBackgroundSprite != set_tile) {
-											g_worldmap.tiles.at(iCol, iRow).iBackgroundSprite = set_tile;
+                                    if (g_worldmap.getTile(iCol, iRow).iBackgroundSprite != set_tile) {
+											g_worldmap.getTile(iCol, iRow).iBackgroundSprite = set_tile;
 											fNeedUpdate = true;
 										}
 
@@ -1539,29 +1543,29 @@ int editor_edit()
 											updateworldsurface();
 									}
                             } else if (edit_mode == 1) {
-                                if (g_worldmap.tiles.at(iCol, iRow).iForegroundSprite != set_tile) {
-										g_worldmap.tiles.at(iCol, iRow).iForegroundSprite = set_tile;
+                                if (g_worldmap.getTile(iCol, iRow).iForegroundSprite != set_tile) {
+										g_worldmap.getTile(iCol, iRow).iForegroundSprite = set_tile;
 										updateworldsurface();
 									}
                             } else if (edit_mode == 2) {
-									g_worldmap.tiles.at(iCol, iRow).iConnectionType = set_tile;
+									g_worldmap.getTile(iCol, iRow).iConnectionType = set_tile;
 
 									if (fAutoPaint)
 										UpdatePath(iCol, iRow);
                             } else if (edit_mode == 3) { //selected stage/door
                                 if (set_tile <= 1) {
-                                    if (g_worldmap.tiles.at(iCol, iRow).iForegroundSprite != set_tile + WORLD_START_SPRITE_OFFSET) {
-											g_worldmap.tiles.at(iCol, iRow).iType = 1;
-											g_worldmap.tiles.at(iCol, iRow).iForegroundSprite = set_tile + WORLD_START_SPRITE_OFFSET;
+                                    if (g_worldmap.getTile(iCol, iRow).iForegroundSprite != set_tile + WORLD_START_SPRITE_OFFSET) {
+											g_worldmap.getTile(iCol, iRow).iType = 1;
+											g_worldmap.getTile(iCol, iRow).iForegroundSprite = set_tile + WORLD_START_SPRITE_OFFSET;
 											updateworldsurface();
 										}
                                 } else if (set_tile <= 5) {
-                                    if (g_worldmap.tiles.at(iCol, iRow).iType != set_tile) {
+                                    if (g_worldmap.getTile(iCol, iRow).iType != set_tile) {
 											//if the door was placed on a start tile
-											if (g_worldmap.tiles.at(iCol, iRow).iType == 1)
-												g_worldmap.tiles.at(iCol, iRow).iForegroundSprite = 0;
+											if (g_worldmap.getTile(iCol, iRow).iType == 1)
+												g_worldmap.getTile(iCol, iRow).iForegroundSprite = 0;
 
-											g_worldmap.tiles.at(iCol, iRow).iType = set_tile;
+											g_worldmap.getTile(iCol, iRow).iType = set_tile;
 											updateworldsurface();
 										}
 									}
@@ -1569,8 +1573,8 @@ int editor_edit()
 									short iAdjustedTile = AdjustForeground(set_tile, iCol, iRow);
 									bool fNeedUpdate = false;
 
-                                if (!fAutoPaint && g_worldmap.tiles.at(iCol, iRow).iForegroundSprite != iAdjustedTile) {
-										g_worldmap.tiles.at(iCol, iRow).iForegroundSprite = iAdjustedTile;
+                                if (!fAutoPaint && g_worldmap.getTile(iCol, iRow).iForegroundSprite != iAdjustedTile) {
+										g_worldmap.getTile(iCol, iRow).iForegroundSprite = iAdjustedTile;
 										fNeedUpdate = true;
 									}
 
@@ -1578,7 +1582,7 @@ int editor_edit()
                                 if (fAutoPaint) {
 										short iOldTiles[9];
 										GetForegroundTileValues(iCol, iRow, iOldTiles);
-										g_worldmap.tiles.at(iCol, iRow).iForegroundSprite = iAdjustedTile;
+										g_worldmap.getTile(iCol, iRow).iForegroundSprite = iAdjustedTile;
 										UpdatePathSprite(iCol, iRow);
 
 										if (ForegroundTileValuesChanged(iCol, iRow, iOldTiles))
@@ -1592,25 +1596,25 @@ int editor_edit()
                             } else if (edit_mode == 6) {
 									AddWarpToTile(iCol, iRow, set_tile);
                             } else if (edit_mode == 7) { //water
-                                if (g_worldmap.tiles.at(iCol, iRow).iBackgroundWater != set_tile) {
-										g_worldmap.tiles.at(iCol, iRow).iBackgroundWater = set_tile;
+                                if (g_worldmap.getTile(iCol, iRow).iBackgroundWater != set_tile) {
+										g_worldmap.getTile(iCol, iRow).iBackgroundWater = set_tile;
 										updateworldsurface();
 									}
                             } else if (edit_mode == 9) { //stage
 									//if the stage was placed on a start tile
-                                if (g_worldmap.tiles.at(iCol, iRow).iType == 1) {
-										g_worldmap.tiles.at(iCol, iRow).iForegroundSprite = 0;
+                                if (g_worldmap.getTile(iCol, iRow).iType == 1) {
+										g_worldmap.getTile(iCol, iRow).iForegroundSprite = 0;
 										updateworldsurface();
 									}
 
-									g_worldmap.tiles.at(iCol, iRow).iType = set_tile;
+									g_worldmap.getTile(iCol, iRow).iType = set_tile;
 								}
-                        } else if (event.motion.state == SDL_BUTTON(SDL_BUTTON_RIGHT)) {
+                        } else if (event.motion.state == SDL_BUTTON_MASK(SDL_BUTTON_RIGHT)) {
                             if (edit_mode == 0) { //selected background
-                                if (g_worldmap.tiles.at(iCol, iRow).iBackgroundSprite != 0 || fAutoPaint) {
+                                if (g_worldmap.getTile(iCol, iRow).iBackgroundSprite != 0 || fAutoPaint) {
 										bool fNeedUpdate = false;
-                                    if (g_worldmap.tiles.at(iCol, iRow).iBackgroundSprite != 0) {
-											g_worldmap.tiles.at(iCol, iRow).iBackgroundSprite = 0;
+                                    if (g_worldmap.getTile(iCol, iRow).iBackgroundSprite != 0) {
+											g_worldmap.getTile(iCol, iRow).iBackgroundSprite = 0;
 											fNeedUpdate = true;
 										}
 
@@ -1623,30 +1627,30 @@ int editor_edit()
 											updateworldsurface();
 									}
                             } else if (edit_mode == 1) {
-                                if (g_worldmap.tiles.at(iCol, iRow).iForegroundSprite != 0) {
-										g_worldmap.tiles.at(iCol, iRow).iForegroundSprite = 0;
+                                if (g_worldmap.getTile(iCol, iRow).iForegroundSprite != 0) {
+										g_worldmap.getTile(iCol, iRow).iForegroundSprite = 0;
 										updateworldsurface();
 									}
                             } else if (edit_mode == 2) {
-									g_worldmap.tiles.at(iCol, iRow).iConnectionType = 0;
+									g_worldmap.getTile(iCol, iRow).iConnectionType = 0;
 
 									if (fAutoPaint)
 										UpdatePath(iCol, iRow);
                             } else if (edit_mode == 3) {
-                                if (g_worldmap.tiles.at(iCol, iRow).iType == 1) {
-										g_worldmap.tiles.at(iCol, iRow).iForegroundSprite = 0;
+                                if (g_worldmap.getTile(iCol, iRow).iType == 1) {
+										g_worldmap.getTile(iCol, iRow).iForegroundSprite = 0;
 										updateworldsurface();
-                                } else if (g_worldmap.tiles.at(iCol, iRow).iType <= 5) {
-										g_worldmap.tiles.at(iCol, iRow).iType = 0;
+                                } else if (g_worldmap.getTile(iCol, iRow).iType <= 5) {
+										g_worldmap.getTile(iCol, iRow).iType = 0;
 										updateworldsurface();
 									}
 
-									g_worldmap.tiles.at(iCol, iRow).iType = 0;
+									g_worldmap.getTile(iCol, iRow).iType = 0;
                             } else if (edit_mode == 4) {
 									bool fNeedUpdate = false;
 
-                                if (!fAutoPaint && g_worldmap.tiles.at(iCol, iRow).iForegroundSprite != 0) {
-										g_worldmap.tiles.at(iCol, iRow).iForegroundSprite = 0;
+                                if (!fAutoPaint && g_worldmap.getTile(iCol, iRow).iForegroundSprite != 0) {
+										g_worldmap.getTile(iCol, iRow).iForegroundSprite = 0;
 										fNeedUpdate = true;
 									}
 
@@ -1654,7 +1658,7 @@ int editor_edit()
                                 if (fAutoPaint) {
 										short iOldTiles[9];
 										GetForegroundTileValues(iCol, iRow, iOldTiles);
-										g_worldmap.tiles.at(iCol, iRow).iForegroundSprite = 0;
+										g_worldmap.getTile(iCol, iRow).iForegroundSprite = 0;
 										UpdatePathSprite(iCol, iRow);
 
 										if (ForegroundTileValuesChanged(iCol, iRow, iOldTiles))
@@ -1669,12 +1673,12 @@ int editor_edit()
                             } else if (edit_mode == 6) { //Warps
 									RemoveWarpFromTile(iCol, iRow);
                             } else if (edit_mode == 7) { //water
-                                if (g_worldmap.tiles.at(iCol, iRow).iBackgroundWater != 0) {
-										g_worldmap.tiles.at(iCol, iRow).iBackgroundWater = 0;
+                                if (g_worldmap.getTile(iCol, iRow).iBackgroundWater != 0) {
+										g_worldmap.getTile(iCol, iRow).iBackgroundWater = 0;
 										updateworldsurface();
 									}
                             } else if (edit_mode == 9) { //stage
-									g_worldmap.tiles.at(iCol, iRow).iType = 0;
+									g_worldmap.getTile(iCol, iRow).iType = 0;
 									iStageDisplay = -1;
 								}
 							}
@@ -1687,8 +1691,8 @@ int editor_edit()
 							std::vector<WorldVehicle*>::iterator itr = vehiclelist.begin(), lim = vehiclelist.end();
                         while (itr != lim) {
 								WorldVehicle * vehicle = *itr;
-                            if (vehicle->currentTile.x == iCol && vehicle->currentTile.y == iRow) {
-									iStageDisplay = vehicle->iActionId;
+                            if (vehicle->getCurrentTile().x == iCol && vehicle->getCurrentTile().y == iRow) {
+									iStageDisplay = vehicle->getActionId();
 									break;
 								}
 
@@ -1697,7 +1701,7 @@ int editor_edit()
                     } else if (edit_mode == 9) {
 							iStageDisplay = -1;
                         if (iCol >= 0 && iRow >= 0 && iCol < iWorldWidth && iRow < iWorldHeight) {
-								short iType = g_worldmap.tiles.at(iCol, iRow).iType - 6;
+								short iType = g_worldmap.getTile(iCol, iRow).iType - 6;
                             if (iType >= 0) {
 									iStageDisplay = iType;
 								}
@@ -1707,7 +1711,7 @@ int editor_edit()
 						break;
 					}
 
-                case SDL_MOUSEBUTTONUP: {
+                case SDL_EVENT_MOUSE_BUTTON_UP: {
                     if (event.button.button == SDL_BUTTON_LEFT) {
 							ignoreclick = false;
 						}
@@ -1758,7 +1762,7 @@ int editor_edit()
             if (edit_mode == 2) {
                 for (short iRow = draw_offset_row; iRow < draw_offset_row + 15 && iRow < iWorldHeight; iRow++) {
                     for (short iCol = draw_offset_col; iCol <= draw_offset_col + 20 && iCol < iWorldWidth; iCol++) {
-						short iConnection = g_worldmap.tiles.at(iCol, iRow).iConnectionType;
+						short iConnection = g_worldmap.getTile(iCol, iRow).iConnectionType;
 
 						if (iConnection > 0)
 							spr_path.draw((iCol - draw_offset_col) * TILESIZE + draw_offset_x, (iRow - draw_offset_row) * TILESIZE + draw_offset_y, {(iConnection - 1) << 5, 0, TILESIZE, TILESIZE});
@@ -1788,32 +1792,32 @@ int editor_edit()
 					itr++;
 				}
             } else if (edit_mode == 8) { //draw boundaries
-				int color = SDL_MapRGB(blitdest->format, 255, 0, 255);
+				int color = SDL_MapSurfaceRGB(blitdest, 255, 0, 255);
                 for (short iRow = draw_offset_row; iRow < draw_offset_row + 15 && iRow < iWorldHeight; iRow++) {
                     for (short iCol = draw_offset_col; iCol <= draw_offset_col + 20 && iCol < iWorldWidth; iCol++) {
-						short iBoundary = g_worldmap.tiles.at(iCol, iRow).iVehicleBoundary - 1;
+						short iBoundary = g_worldmap.getTile(iCol, iRow).iVehicleBoundary - 1;
 
                         if (iBoundary >= 0) {
 							short ix = (iCol - draw_offset_col) * TILESIZE + draw_offset_x;
 							short iy = (iRow - draw_offset_row) * TILESIZE + draw_offset_y;
 							SDL_Rect r = {ix, iy, 32, 32};
-							SDL_FillRect(blitdest, &r, color);
+							SDL_FillSurfaceRect(blitdest, &r, color);
 
 							rm->spr_worldforegroundspecial[0].draw(ix, iy, {(iBoundary % 10) << 5, (iBoundary / 10) << 5, 32, 32});
 						}
 					}
 				}
             } else if (edit_mode == 9) { //draw stages
-				int color = SDL_MapRGB(blitdest->format, 0, 0, 255);
+				int color = SDL_MapSurfaceRGB(blitdest, 0, 0, 255);
                 for (short iRow = draw_offset_row; iRow < draw_offset_row + 15 && iRow < iWorldHeight; iRow++) {
                     for (short iCol = draw_offset_col; iCol <= draw_offset_col + 20 && iCol < iWorldWidth; iCol++) {
-						short iType = g_worldmap.tiles.at(iCol, iRow).iType - 6;
+						short iType = g_worldmap.getTile(iCol, iRow).iType - 6;
 
                         if (iType >= 0) {
 							short ix = (iCol - draw_offset_col) * TILESIZE + draw_offset_x;
 							short iy = (iRow - draw_offset_row) * TILESIZE + draw_offset_y;
 							SDL_Rect r = {ix, iy, 32, 32};
-							SDL_FillRect(blitdest, &r, color);
+							SDL_FillSurfaceRect(blitdest, &r, color);
 
 							rm->spr_worldforegroundspecial[0].draw(ix, iy, {(iType % 10) << 5, (iType / 10) << 5, 32, 32});
 						}
@@ -1827,24 +1831,24 @@ int editor_edit()
 
             if (edit_mode == 5 || edit_mode == 8) { //draw vehicles
 				std::vector<WorldVehicle*>::iterator itr = vehiclelist.begin(), lim = vehiclelist.end();
-				int color = SDL_MapRGB(blitdest->format, 0, 0, 128);
+				int color = SDL_MapSurfaceRGB(blitdest, 0, 0, 128);
                 while (itr != lim) {
 					WorldVehicle * vehicle = *itr;
 
-					short ix = (vehicle->currentTile.x  - draw_offset_col) * TILESIZE + draw_offset_x;
-					short iy = (vehicle->currentTile.y - draw_offset_row) * TILESIZE + draw_offset_y;
+					short ix = (vehicle->getCurrentTile().x - draw_offset_col) * TILESIZE + draw_offset_x;
+					short iy = (vehicle->getCurrentTile().y - draw_offset_row) * TILESIZE + draw_offset_y;
 
 					SDL_Rect r = {ix, iy, 32, 32};
-					SDL_FillRect(blitdest, &r, color);
+					SDL_FillSurfaceRect(blitdest, &r, color);
 
-					rm->spr_worldvehicle[0].draw(ix, iy, {vehicle->iDrawDirection << 5, vehicle->iDrawSprite << 5, 32, 32});
+					rm->spr_worldvehicle[0].draw(ix, iy, {vehicle->getDrawDirection() << 5, vehicle->getDrawSprite() << 5, 32, 32});
 
                     if (edit_mode == 5) {
-						rm->spr_worldforegroundspecial[0].draw(ix, iy, {(vehicle->iActionId % 10) << 5, (vehicle->iActionId / 10) << 5, 32, 32});
+						rm->spr_worldforegroundspecial[0].draw(ix, iy, {(vehicle->getActionId() % 10) << 5, (vehicle->getActionId() / 10) << 5, 32, 32});
 					}
 
                     if (edit_mode == 8) {
-						short iBoundary = vehicle->iBoundary - 1;
+						short iBoundary = vehicle->getBoundary() - 1;
 						if (iBoundary == -1)
 							rm->spr_worldforegroundspecial[0].draw(ix, iy, {288, 288, 32, 32});
 						else
@@ -1872,7 +1876,7 @@ int editor_edit()
             if (--g_musiccategorydisplaytimer > 0) {
 				spr_dialog.draw(224, 176, {0, 0, 192, 128});
 				rm->menu_font_small.drawCentered(320, 195, "Music Category");
-                                rm->menu_font_large.drawCentered(320, 220, to_string(g_worldmap.iMusicCategory).data());
+                                rm->menu_font_large.drawCentered(320, 220, to_string(g_worldmap.GetMusicCategory()).data());
 
 				rm->menu_font_small.drawCentered(320, 255, "Press 'R' Again");
 				rm->menu_font_small.drawCentered(320, 270, "To Change");
@@ -1914,7 +1918,7 @@ void GetForegroundTileValues(short iCol, short iRow, short iOldTiles[9])
     for (short iAutoRow = iRow - 1; iAutoRow <= iRow + 1; iAutoRow++) {
         for (short iAutoCol = iCol - 1; iAutoCol <= iCol + 1; iAutoCol++) {
             if (iAutoRow >= 0 && iAutoRow < iWorldHeight && iAutoCol >= 0 && iAutoCol < iWorldWidth) {
-				iOldTiles[iIndex++] = g_worldmap.tiles.at(iAutoCol, iAutoRow).iForegroundSprite;
+				iOldTiles[iIndex++] = g_worldmap.getTile(iAutoCol, iAutoRow).iForegroundSprite;
 			}
 		}
 	}
@@ -1929,7 +1933,7 @@ bool ForegroundTileValuesChanged(short iCol, short iRow, short iOldTiles[9])
     for (short iAutoRow = iRow - 1; iAutoRow <= iRow + 1; iAutoRow++) {
         for (short iAutoCol = iCol - 1; iAutoCol <= iCol + 1; iAutoCol++) {
             if (iAutoRow >= 0 && iAutoRow < iWorldHeight && iAutoCol >= 0 && iAutoCol < iWorldWidth) {
-				if (g_worldmap.tiles.at(iAutoCol, iAutoRow).iForegroundSprite != iOldTiles[iIndex++])
+				if (g_worldmap.getTile(iAutoCol, iAutoRow).iForegroundSprite != iOldTiles[iIndex++])
 					return true;
 			}
 		}
@@ -1948,18 +1952,17 @@ void ReadVehiclesIntoEditor()
 
 	vehiclelist.clear();
 
-    for (const WorldVehicle& vehicle : g_worldmap.vehicles) {
+    for (const WorldVehicle& vehicle : g_worldmap.getVehicles()) {
         WorldVehicle * vehiclecopy = new WorldVehicle();
 
-        vehiclecopy->iDrawSprite = vehicle.iDrawSprite;
-        vehiclecopy->iActionId = vehicle.iActionId;
-        vehiclecopy->currentTile.x = vehicle.currentTile.x;
-        vehiclecopy->currentTile.y = vehicle.currentTile.y;
-        vehiclecopy->iMinMoves = vehicle.iMinMoves;
-        vehiclecopy->iMaxMoves = vehicle.iMaxMoves;
-        vehiclecopy->fSpritePaces = vehicle.fSpritePaces;
-        vehiclecopy->iDrawDirection = vehicle.iDrawDirection;
-        vehiclecopy->iBoundary = vehicle.iBoundary;
+        vehiclecopy->setDrawSprite(vehicle.getDrawSprite());
+        vehiclecopy->setActionId(vehicle.getActionId());
+        vehiclecopy->setCurrentTile(vehicle.getCurrentTile().x, vehicle.getCurrentTile().y);
+        vehiclecopy->setMinMoves(vehicle.getMinMoves());
+        vehiclecopy->setMaxMoves(vehicle.getMaxMoves());
+        vehiclecopy->setSpritePacing(vehicle.isSpritePacing());
+        vehiclecopy->setDrawDirection(vehicle.getDrawDirection());
+        vehiclecopy->setBoundary(vehicle.getBoundary());
 
         vehiclelist.push_back(vehiclecopy);
     }
@@ -1967,25 +1970,24 @@ void ReadVehiclesIntoEditor()
 
 void WriteVehiclesIntoWorld()
 {
-    //Cleanup old vehicles
-    g_worldmap.vehicles.clear();
-
     //Insert new vehicles
-    g_worldmap.vehicles.reserve(vehiclelist.size());
+    std::vector<WorldVehicle> worldvehicles;
+    worldvehicles.reserve(vehiclelist.size());
 
     for (const WorldVehicle* vehicle : vehiclelist) {
         WorldVehicle vehiclecopy;
-        vehiclecopy.iDrawSprite = vehicle->iDrawSprite;
-        vehiclecopy.iActionId = vehicle->iActionId;
-        vehiclecopy.currentTile.x = vehicle->currentTile.x;
-        vehiclecopy.currentTile.y = vehicle->currentTile.y;
-        vehiclecopy.iMinMoves = vehicle->iMinMoves;
-        vehiclecopy.iMaxMoves = vehicle->iMaxMoves;
-        vehiclecopy.fSpritePaces = vehicle->fSpritePaces;
-        vehiclecopy.iDrawDirection = vehicle->iDrawDirection;
-        vehiclecopy.iBoundary = vehicle->iBoundary;
-        g_worldmap.vehicles.emplace_back(std::move(vehiclecopy));
+        vehiclecopy.setDrawSprite(vehicle->getDrawSprite());
+        vehiclecopy.setActionId(vehicle->getActionId());
+        vehiclecopy.setCurrentTile(vehicle->getCurrentTile().x, vehicle->getCurrentTile().y);
+        vehiclecopy.setMinMoves(vehicle->getMinMoves());
+        vehiclecopy.setMaxMoves(vehicle->getMaxMoves());
+        vehiclecopy.setSpritePacing(vehicle->isSpritePacing());
+        vehiclecopy.setDrawDirection(vehicle->getDrawDirection());
+        vehiclecopy.setBoundary(vehicle->getBoundary());
+        worldvehicles.emplace_back(std::move(vehiclecopy));
     }
+
+    g_worldmap.setVehicles(std::move(worldvehicles));
 }
 
 void AddVehicleToTile(short iCol, short iRow, short iType)
@@ -1994,7 +1996,7 @@ void AddVehicleToTile(short iCol, short iRow, short iType)
 	WorldVehicle * newvehicle = NULL;
     while (itr != lim) {
 		WorldVehicle * vehicle = *itr;
-        if (vehicle->currentTile.x == iCol && vehicle->currentTile.y == iRow) {
+        if (vehicle->getCurrentTile().x == iCol && vehicle->getCurrentTile().y == iRow) {
 			newvehicle = vehicle;
 			break;
 		}
@@ -2004,18 +2006,17 @@ void AddVehicleToTile(short iCol, short iRow, short iType)
 
     if (!newvehicle) {
 		newvehicle = new WorldVehicle();
-		newvehicle->currentTile.x = iCol;
-		newvehicle->currentTile.y = iRow;
+		newvehicle->setCurrentTile(iCol, iRow);
 		vehiclelist.push_back(newvehicle);
 	}
 
-	newvehicle->iDrawSprite = g_wvVehicleStamp.iDrawSprite;
-	newvehicle->iActionId = g_wvVehicleStamp.iActionId;
-	newvehicle->iMinMoves = g_wvVehicleStamp.iMinMoves;
-	newvehicle->iMaxMoves = g_wvVehicleStamp.iMaxMoves;
-	newvehicle->fSpritePaces = g_wvVehicleStamp.fSpritePaces;
-	newvehicle->iDrawDirection = g_wvVehicleStamp.iDrawDirection;
-	newvehicle->iBoundary = g_wvVehicleStamp.iBoundary;
+	newvehicle->setDrawSprite(g_wvVehicleStamp.getDrawSprite());
+	newvehicle->setActionId(g_wvVehicleStamp.getActionId());
+	newvehicle->setMinMoves(g_wvVehicleStamp.getMinMoves());
+	newvehicle->setMaxMoves(g_wvVehicleStamp.getMaxMoves());
+	newvehicle->setSpritePacing(g_wvVehicleStamp.isSpritePacing());
+	newvehicle->setDrawDirection(g_wvVehicleStamp.getDrawDirection());
+	newvehicle->setBoundary(g_wvVehicleStamp.getBoundary());
 }
 
 void RemoveVehicleFromTile(short iCol, short iRow)
@@ -2023,7 +2024,7 @@ void RemoveVehicleFromTile(short iCol, short iRow)
 	std::vector<WorldVehicle*>::iterator itr = vehiclelist.begin(), lim = vehiclelist.end();
     while (itr != lim) {
 		WorldVehicle * vehicle = *itr;
-        if (vehicle->currentTile.x == iCol && vehicle->currentTile.y == iRow) {
+        if (vehicle->getCurrentTile().x == iCol && vehicle->getCurrentTile().y == iRow) {
 			delete (*itr);
 
 			itr = vehiclelist.erase(itr);
@@ -2046,22 +2047,21 @@ void ReadWarpsIntoEditor()
 
 	warplist.clear();
 
-    for (const WorldWarp& warp : g_worldmap.warps) {
+    for (const WorldWarp& warp : g_worldmap.getWarps()) {
         warplist.push_back(new WorldWarp(warp));
     }
 }
 
 void WriteWarpsIntoWorld()
 {
-    //Cleanup old vehicles
-    g_worldmap.warps.clear();
-
-    //Insert new vehicles
-    g_worldmap.warps.reserve(warplist.size());
+    std::vector<WorldWarp> worldwarps;
+    worldwarps.reserve(warplist.size());
 
     for (const WorldWarp* warp : warplist) {
-        g_worldmap.warps.emplace_back(*warp);
+        worldwarps.emplace_back(*warp);
     }
+
+    g_worldmap.setWarps(std::move(worldwarps));
 }
 
 void AddWarpToTile(short iCol, short iRow, short iType)
@@ -2141,7 +2141,7 @@ void AutoSetPathSprite(short iCol, short iRow)
 	short iPath = 0;
 	short iNeighborIndex = 0;
 
-	short iForegroundSprite = g_worldmap.tiles.at(iCol, iRow).iForegroundSprite;
+	short iForegroundSprite = g_worldmap.getTile(iCol, iRow).iForegroundSprite;
 	short iForegroundStyle = iForegroundSprite / WORLD_PATH_SPRITE_SET_SIZE;
 
 	if (iForegroundSprite == 0 || iForegroundSprite >= WORLD_FOREGROUND_STAGE_OFFSET)
@@ -2154,7 +2154,7 @@ void AutoSetPathSprite(short iCol, short iRow)
 
             if ((iAutoCol == iCol && iAutoRow != iRow) || (iAutoCol != iCol && iAutoRow == iRow)) {
                 if (iAutoRow >= 0 && iAutoRow < iWorldHeight && iAutoCol >= 0 && iAutoCol < iWorldWidth) {
-					iForegroundSprite = g_worldmap.tiles.at(iAutoCol, iAutoRow).iForegroundSprite;
+					iForegroundSprite = g_worldmap.getTile(iAutoCol, iAutoRow).iForegroundSprite;
 
 					if ((iForegroundSprite >= WORLD_BRIDGE_SPRITE_OFFSET && iForegroundSprite <= WORLD_BRIDGE_SPRITE_OFFSET + 3) ||
 						(iForegroundSprite >= WORLD_FOREGROUND_STAGE_OFFSET && iForegroundSprite <= WORLD_FOREGROUND_STAGE_OFFSET + 399) ||
@@ -2176,7 +2176,7 @@ void AutoSetPathSprite(short iCol, short iRow)
 	}
 
 	//#1 == -  2 == |  3 == -o  4 == !  5 == -`  6 == o
-	g_worldmap.tiles.at(iCol, iRow).iForegroundSprite = AdjustForeground(iPathTypes[iPath] + iForegroundStyle * WORLD_PATH_SPRITE_SET_SIZE, iCol, iRow);
+	g_worldmap.getTile(iCol, iRow).iForegroundSprite = AdjustForeground(iPathTypes[iPath] + iForegroundStyle * WORLD_PATH_SPRITE_SET_SIZE, iCol, iRow);
 }
 
 //Convert foreground sprite to match the background sprite
@@ -2185,7 +2185,7 @@ short AdjustForeground(short iSprite, short iCol, short iRow)
 	if (iSprite >= WORLD_FOREGROUND_STAGE_OFFSET)
 		return iSprite;
 
-	short iBackgroundSprite = g_worldmap.tiles.at(iCol, iRow).iBackgroundSprite % WORLD_BACKGROUND_SPRITE_SET_SIZE;
+	short iBackgroundSprite = g_worldmap.getTile(iCol, iRow).iBackgroundSprite % WORLD_BACKGROUND_SPRITE_SET_SIZE;
 
 	short iPathStyle = iSprite / WORLD_PATH_SPRITE_SET_SIZE;
 	iSprite %= WORLD_PATH_SPRITE_SET_SIZE;
@@ -2250,7 +2250,7 @@ void AutoSetPath(short iCol, short iRow)
 	short iPath = 0;
 	short iNeighborIndex = 0;
 
-	if (g_worldmap.tiles.at(iCol, iRow).iConnectionType == 0)
+	if (g_worldmap.getTile(iCol, iRow).iConnectionType == 0)
 		return;
 
     for (short iAutoRow = iRow - 1; iAutoRow <= iRow + 1; iAutoRow++) {
@@ -2260,7 +2260,7 @@ void AutoSetPath(short iCol, short iRow)
 
             if ((iAutoCol == iCol && iAutoRow != iRow) || (iAutoCol != iCol && iAutoRow == iRow)) {
                 if (iAutoRow >= 0 && iAutoRow < iWorldHeight && iAutoCol >= 0 && iAutoCol < iWorldWidth) {
-					if (g_worldmap.tiles.at(iAutoCol, iAutoRow).iConnectionType > 0)
+					if (g_worldmap.getTile(iAutoCol, iAutoRow).iConnectionType > 0)
 						iPath += 1 << iNeighborIndex;
 				}
 
@@ -2273,7 +2273,7 @@ void AutoSetPath(short iCol, short iRow)
 	//#7 == -|  8 == -`-  9 == |-  10 == -,-  11 == +
 
 	short iPathType = iPathTypes[iPath];
-	short iForegroundSprite = g_worldmap.tiles.at(iCol, iRow).iForegroundSprite;
+	short iForegroundSprite = g_worldmap.getTile(iCol, iRow).iForegroundSprite;
 
     if (iPathType == 2 && iForegroundSprite >= WORLD_BRIDGE_SPRITE_OFFSET && iForegroundSprite <= WORLD_BRIDGE_SPRITE_OFFSET + 1) {
 		iPathType = iForegroundSprite - WORLD_BRIDGE_SPRITE_OFFSET + 12;
@@ -2281,15 +2281,15 @@ void AutoSetPath(short iCol, short iRow)
 		iPathType = iForegroundSprite - WORLD_BRIDGE_SPRITE_OFFSET + 12;
 	}
 
-	g_worldmap.tiles.at(iCol, iRow).iConnectionType = iPathType;
+	g_worldmap.getTile(iCol, iRow).iConnectionType = iPathType;
 }
 
 bool UpdateForeground(short iCol, short iRow)
 {
-	short iNewForeground = AdjustForeground(g_worldmap.tiles.at(iCol, iRow).iForegroundSprite, iCol, iRow);
+	short iNewForeground = AdjustForeground(g_worldmap.getTile(iCol, iRow).iForegroundSprite, iCol, iRow);
 
-    if (g_worldmap.tiles.at(iCol, iRow).iForegroundSprite != iNewForeground) {
-		g_worldmap.tiles.at(iCol, iRow).iForegroundSprite = iNewForeground;
+    if (g_worldmap.getTile(iCol, iRow).iForegroundSprite != iNewForeground) {
+		g_worldmap.getTile(iCol, iRow).iForegroundSprite = iNewForeground;
 		return true;
 	}
 
@@ -2318,7 +2318,7 @@ bool UpdateCoastline(short iCol, short iRow)
 bool AutoSetTile(short iCol, short iRow)
 {
 	//Don't need to do anything if this tile is solid
-	if (g_worldmap.tiles.at(iCol, iRow).iBackgroundSprite % WORLD_BACKGROUND_SPRITE_SET_SIZE == 1)
+	if (g_worldmap.getTile(iCol, iRow).iBackgroundSprite % WORLD_BACKGROUND_SPRITE_SET_SIZE == 1)
 		return false;
 
 	bool iTile[8] = {0, 0, 0, 0, 0, 0, 0, 0};
@@ -2332,7 +2332,7 @@ bool AutoSetTile(short iCol, short iRow)
 				continue;
 
             if (iAutoRow >= 0 && iAutoRow < iWorldHeight && iAutoCol >= 0 && iAutoCol < iWorldWidth) {
-				short iBackgroundSprite = g_worldmap.tiles.at(iAutoCol, iAutoRow).iBackgroundSprite;
+				short iBackgroundSprite = g_worldmap.getTile(iAutoCol, iAutoRow).iBackgroundSprite;
 
                 if (iBackgroundSprite % WORLD_BACKGROUND_SPRITE_SET_SIZE == 1) {
 					iTile[iNeighborIndex] = true;
@@ -2450,8 +2450,8 @@ bool AutoSetTile(short iCol, short iRow)
 		iNewTile = iTileStyleOffset + 0;
 	}
 
-    if (g_worldmap.tiles.at(iCol, iRow).iBackgroundSprite != iNewTile) {
-		g_worldmap.tiles.at(iCol, iRow).iBackgroundSprite = iNewTile;
+    if (g_worldmap.getTile(iCol, iRow).iBackgroundSprite != iNewTile) {
+		g_worldmap.getTile(iCol, iRow).iBackgroundSprite = iNewTile;
 		return true;
 	}
 
@@ -2466,7 +2466,7 @@ void updateworldsurface()
 void drawmap(bool fScreenshot, short iBlockSize)
 {
 	if (fNeedBlackBackground)
-		SDL_FillRect(screen, NULL, 0x0);
+		SDL_FillSurfaceRect(screen, NULL, 0x0);
 
 	sMapSurface.draw(rectSrcSurface, blitdest, rectDstSurface);
 }
@@ -2481,17 +2481,17 @@ int editor_warp()
 		//handle messages
         while (SDL_PollEvent(&event)) {
             switch (event.type) {
-            case SDL_QUIT: {
+            case SDL_EVENT_QUIT: {
 					done = true;
 					break;
 				}
 
-            case SDL_KEYDOWN: {
+            case SDL_EVENT_KEY_DOWN: {
 					edit_mode = 6;  //change to edit mode using warps
 					return EDITOR_EDIT;
 				}
 
-            case SDL_MOUSEBUTTONDOWN: {
+            case SDL_EVENT_MOUSE_BUTTON_DOWN: {
 					short iButtonX = bound_to_window_w(event.button.x) / TILESIZE;
 					short iButtonY = bound_to_window_h(event.button.y) / TILESIZE;
 
@@ -2579,43 +2579,37 @@ int editor_start_items()
 		//handle messages
         while (SDL_PollEvent(&event)) {
             switch (event.type) {
-            case SDL_QUIT: {
+            case SDL_EVENT_QUIT: {
 					done = true;
 					break;
 				}
 
-            case SDL_KEYDOWN: {
+            case SDL_EVENT_KEY_DOWN: {
 					return EDITOR_EDIT;
 				}
 
-            case SDL_MOUSEBUTTONDOWN: {
+            case SDL_EVENT_MOUSE_BUTTON_DOWN: {
 					short iButtonX = bound_to_window_w(event.button.x);
 					short iButtonY = bound_to_window_h(event.button.y);
 
                 if (event.button.button == SDL_BUTTON_LEFT || event.button.button == SDL_BUTTON_RIGHT) {
-                    if (g_worldmap.iNumInitialBonuses < 32) {
-                        for (short iItem = 0; iItem < NUM_POWERUPS + NUM_WORLD_POWERUPS; iItem++) {
-								if (iButtonX >= rItemDst[iItem].x && iButtonX < rItemDst[iItem].w + rItemDst[iItem].x &&
-                                    iButtonY >= rItemDst[iItem].y && iButtonY < rItemDst[iItem].h + rItemDst[iItem].y) {
-									g_worldmap.iInitialBonuses[g_worldmap.iNumInitialBonuses++] = iItem;
-									break;
-								}
-							}
-						}
-
-                    for (short iRemoveItem = 0; iRemoveItem < g_worldmap.iNumInitialBonuses; iRemoveItem++) {
-							if (iButtonX >= rPickedItemDst[iRemoveItem].x && iButtonX < rPickedItemDst[iRemoveItem].w + rPickedItemDst[iRemoveItem].x &&
-                                iButtonY >= rPickedItemDst[iRemoveItem].y && iButtonY < rPickedItemDst[iRemoveItem].h + rPickedItemDst[iRemoveItem].y) {
-                            for (short iAdjust = iRemoveItem; iAdjust < g_worldmap.iNumInitialBonuses - 1; iAdjust++) {
-									g_worldmap.iInitialBonuses[iAdjust] = g_worldmap.iInitialBonuses[iAdjust + 1];
-								}
-
-								g_worldmap.iNumInitialBonuses--;
-
+                    for (short iItem = 0; iItem < NUM_POWERUPS + NUM_WORLD_POWERUPS; iItem++) {
+							if (iButtonX >= rItemDst[iItem].x && iButtonX < rItemDst[iItem].w + rItemDst[iItem].x &&
+                                iButtonY >= rItemDst[iItem].y && iButtonY < rItemDst[iItem].h + rItemDst[iItem].y) {
+								g_worldmap.addInitialBonus(iItem);
 								break;
 							}
 						}
 					}
+
+                    for (short iRemoveItem = 0; iRemoveItem < g_worldmap.getNumInitialBonuses(); iRemoveItem++) {
+							if (iButtonX >= rPickedItemDst[iRemoveItem].x && iButtonX < rPickedItemDst[iRemoveItem].w + rPickedItemDst[iRemoveItem].x &&
+                                iButtonY >= rPickedItemDst[iRemoveItem].y && iButtonY < rPickedItemDst[iRemoveItem].h + rPickedItemDst[iRemoveItem].y) {
+								g_worldmap.removeInitialBonus(iRemoveItem);
+
+								break;
+							}
+						}
 
 					break;
 				}
@@ -2642,8 +2636,8 @@ int editor_start_items()
 			rm->spr_worlditempopup.draw(320, 416 - (iPopup << 6), {192, 0, 320, 64});
 		}
 
-        for (short iPickedItem = 0; iPickedItem < g_worldmap.iNumInitialBonuses; iPickedItem++) {
-			short iPowerup = g_worldmap.iInitialBonuses[iPickedItem];
+        for (short iPickedItem = 0; iPickedItem < g_worldmap.getNumInitialBonuses(); iPickedItem++) {
+			short iPowerup = g_worldmap.getInitialBonus(iPickedItem);
 			if (iPowerup >= NUM_POWERUPS)
 				rm->spr_worlditems.draw(rPickedItemDst[iPickedItem].x, rPickedItemDst[iPickedItem].y, {(iPowerup - NUM_POWERUPS) << 5, 0, 32, 32});
 			else
@@ -2677,17 +2671,17 @@ int editor_boundary()
 		//handle messages
         while (SDL_PollEvent(&event)) {
             switch (event.type) {
-            case SDL_QUIT: {
+            case SDL_EVENT_QUIT: {
 					done = true;
 					break;
 				}
 
-            case SDL_KEYDOWN: {
+            case SDL_EVENT_KEY_DOWN: {
 					edit_mode = 8;  //change to edit mode using warps
 					return EDITOR_EDIT;
 				}
 
-            case SDL_MOUSEBUTTONDOWN: {
+            case SDL_EVENT_MOUSE_BUTTON_DOWN: {
 					short iButtonX = bound_to_window_w(event.button.x) / TILESIZE;
 					short iButtonY = bound_to_window_h(event.button.y) / TILESIZE;
 
@@ -2716,9 +2710,9 @@ int editor_boundary()
 		drawmap(false, TILESIZE);
 		menu_shade.draw(0, 0);
 
-		int color = SDL_MapRGB(blitdest->format, 255, 0, 255);
+		int color = SDL_MapSurfaceRGB(blitdest, 255, 0, 255);
 		SDL_Rect r = {0, 0, 320, 320};
-		SDL_FillRect(blitdest, &r, color);
+		SDL_FillSurfaceRect(blitdest, &r, color);
 
 		rm->spr_worldforegroundspecial[0].draw(0, 0, {0, 0, 320, 320});
 
@@ -2749,19 +2743,19 @@ int editor_type()
 		//handle messages
         while (SDL_PollEvent(&event)) {
             switch (event.type) {
-            case SDL_QUIT: {
+            case SDL_EVENT_QUIT: {
 					done = true;
 					break;
 				}
 
-            case SDL_KEYDOWN: {
+            case SDL_EVENT_KEY_DOWN: {
 					edit_mode = 3;  //change to edit mode using doors/start
 					return EDITOR_EDIT;
 
 					break;
 				}
 
-            case SDL_MOUSEBUTTONDOWN: {
+            case SDL_EVENT_MOUSE_BUTTON_DOWN: {
                 if (event.button.button == SDL_BUTTON_LEFT) {
 						short iButtonX = bound_to_window_w(event.button.x) / TILESIZE;
 						short iButtonY = bound_to_window_h(event.button.y) / TILESIZE;
@@ -2823,17 +2817,17 @@ int editor_water()
 		//handle messages
         while (SDL_PollEvent(&event)) {
             switch (event.type) {
-            case SDL_QUIT: {
+            case SDL_EVENT_QUIT: {
 					done = true;
 					break;
 				}
 
-            case SDL_KEYDOWN: {
+            case SDL_EVENT_KEY_DOWN: {
 					edit_mode = 7;
 					return EDITOR_EDIT;
 				}
 
-            case SDL_MOUSEBUTTONDOWN: {
+            case SDL_EVENT_MOUSE_BUTTON_DOWN: {
                 if (event.button.button == SDL_BUTTON_LEFT) {
 						short iButtonX = bound_to_window_w(event.button.x) / TILESIZE;
 						short iButtonY = bound_to_window_h(event.button.y) / TILESIZE;
@@ -2857,7 +2851,7 @@ int editor_water()
 			}
 		}
 
-		SDL_FillRect(screen, NULL, 0x0);
+		SDL_FillSurfaceRect(screen, NULL, 0x0);
 
 		for (short iWater = 0; iWater < 3; iWater++)
 			rm->spr_worldbackground[0].draw(iWater << 5, 0, {512 + (iWater << 7), 0, 32, 32});
@@ -2888,13 +2882,13 @@ int editor_background()
 		//handle messages
         while (SDL_PollEvent(&event)) {
             switch (event.type) {
-            case SDL_QUIT: {
+            case SDL_EVENT_QUIT: {
 					done = true;
 					break;
 				}
 
-            case SDL_KEYDOWN: {
-                const SDL_Keycode key = event.key.keysym.sym;
+            case SDL_EVENT_KEY_DOWN: {
+                const SDL_Keycode key = event.key.key;
                 if (key >= SDLK_1 && key <= SDLK_2) {
 						iPage = key - SDLK_1;
                 } else {
@@ -2905,7 +2899,7 @@ int editor_background()
 					break;
 				}
 
-            case SDL_MOUSEBUTTONDOWN: {
+            case SDL_EVENT_MOUSE_BUTTON_DOWN: {
                 if (event.button.button == SDL_BUTTON_LEFT) {
 						short iButtonX = bound_to_window_w(event.button.x) / TILESIZE;
 						short iButtonY = bound_to_window_h(event.button.y) / TILESIZE;
@@ -2947,7 +2941,7 @@ int editor_background()
 			}
 		}
 
-		SDL_FillRect(screen, NULL, 0x0);
+		SDL_FillSurfaceRect(screen, NULL, 0x0);
 
 		rm->spr_worldbackground[0].draw(0, 0, {iPage * 640, 32, 640, 480});
 
@@ -2977,13 +2971,13 @@ int editor_stageforeground()
 		//handle messages
         while (SDL_PollEvent(&event)) {
             switch (event.type) {
-            case SDL_QUIT: {
+            case SDL_EVENT_QUIT: {
 					done = true;
 					break;
 				}
 
-            case SDL_KEYDOWN: {
-                const SDL_Keycode key = event.key.keysym.sym;
+            case SDL_EVENT_KEY_DOWN: {
+                const SDL_Keycode key = event.key.key;
 
                 if (key >= SDLK_1 && key <= SDLK_4) {
 						iForegroundScreen = key - SDLK_1;
@@ -2995,7 +2989,7 @@ int editor_stageforeground()
 					break;
 				}
 
-            case SDL_MOUSEBUTTONDOWN: {
+            case SDL_EVENT_MOUSE_BUTTON_DOWN: {
                 if (event.button.button == SDL_BUTTON_LEFT) {
 						short iButtonX = bound_to_window_w(event.button.x) / TILESIZE;
 						short iButtonY = bound_to_window_h(event.button.y) / TILESIZE;
@@ -3019,7 +3013,7 @@ int editor_stageforeground()
 			}
 		}
 
-		SDL_FillRect(screen, NULL, 0x0);
+		SDL_FillSurfaceRect(screen, NULL, 0x0);
 
         for (short iRow = 0; iRow < 10; iRow++) {
             for (short iCol = 0; iCol < 10; iCol++) {
@@ -3054,19 +3048,19 @@ int editor_bridges()
 		//handle messages
         while (SDL_PollEvent(&event)) {
             switch (event.type) {
-            case SDL_QUIT: {
+            case SDL_EVENT_QUIT: {
 					done = true;
 					break;
 				}
 
-            case SDL_KEYDOWN: {
+            case SDL_EVENT_KEY_DOWN: {
 					edit_mode = 1;
 					return EDITOR_EDIT;
 
 					break;
 				}
 
-            case SDL_MOUSEBUTTONDOWN: {
+            case SDL_EVENT_MOUSE_BUTTON_DOWN: {
                 if (event.button.button == SDL_BUTTON_LEFT) {
 						short iButtonX = bound_to_window_w(event.button.x) / TILESIZE;
 						short iButtonY = bound_to_window_h(event.button.y) / TILESIZE;
@@ -3090,7 +3084,7 @@ int editor_bridges()
 			}
 		}
 
-		SDL_FillRect(screen, NULL, 0x0);
+		SDL_FillSurfaceRect(screen, NULL, 0x0);
 
 		rm->spr_worldforegroundspecial[0].draw(0, 0, {320, 224, 128, 32});
 
@@ -3119,19 +3113,19 @@ int editor_structureforeground()
 		//handle messages
         while (SDL_PollEvent(&event)) {
             switch (event.type) {
-            case SDL_QUIT: {
+            case SDL_EVENT_QUIT: {
 					done = true;
 					break;
 				}
 
-            case SDL_KEYDOWN: {
+            case SDL_EVENT_KEY_DOWN: {
 					edit_mode = 1;
 					return EDITOR_EDIT;
 
 					break;
 				}
 
-            case SDL_MOUSEBUTTONDOWN: {
+            case SDL_EVENT_MOUSE_BUTTON_DOWN: {
                 if (event.button.button == SDL_BUTTON_LEFT) {
 						short iButtonX = bound_to_window_w(event.button.x) / TILESIZE;
 						short iButtonY = bound_to_window_h(event.button.y) / TILESIZE;
@@ -3161,7 +3155,7 @@ int editor_structureforeground()
 			}
 		}
 
-		SDL_FillRect(screen, NULL, 0x0);
+		SDL_FillSurfaceRect(screen, NULL, 0x0);
 
 		rm->spr_worldforeground[0].draw(0, 0, {0, 0, 416, 480});
 		rm->spr_worldforeground[0].draw(416, 0, {512, 0, 32, 480});
@@ -3191,17 +3185,17 @@ int editor_pathsprite()
         //handle messages
         while (SDL_PollEvent(&event)) {
             switch (event.type) {
-            case SDL_QUIT: {
+            case SDL_EVENT_QUIT: {
 					done = true;
 					break;
 				}
 
-            case SDL_KEYDOWN: {
+            case SDL_EVENT_KEY_DOWN: {
 					edit_mode = 4;
 					return EDITOR_EDIT;
 				}
 
-            case SDL_MOUSEBUTTONDOWN: {
+            case SDL_EVENT_MOUSE_BUTTON_DOWN: {
                 if (event.button.button == SDL_BUTTON_LEFT) {
 						short iButtonX = bound_to_window_w(event.button.x) / TILESIZE;
 						short iButtonY = bound_to_window_h(event.button.y) / TILESIZE;
@@ -3224,7 +3218,7 @@ int editor_pathsprite()
 			}
 		}
 
-		SDL_FillRect(screen, NULL, 0x0);
+		SDL_FillSurfaceRect(screen, NULL, 0x0);
 
         for (short iPath = 0; iPath < 8; iPath++) {
 			rm->spr_worldpaths[0].draw(iPath << 5, 0, {(iPath % 4) * 160, (iPath / 4) * 320, 32, 192});
@@ -3250,7 +3244,7 @@ int editor_pathsprite()
 
 int editor_vehicles()
 {
-    if (g_worldmap.iNumStages <= 0) {
+    if (g_worldmap.getNumStages() <= 0) {
 		SetDisplayMessage(120, "No Stages", "You need to create", "stages before you", "can create vehicles");
 		return EDITOR_EDIT;
 	}
@@ -3262,7 +3256,7 @@ int editor_vehicles()
 
 	miVehicleStageField->clear();
 
-    for (short iStage = 0; iStage < g_worldmap.iNumStages; iStage++) {
+    for (short iStage = 0; iStage < g_worldmap.getNumStages(); iStage++) {
 		TourStop * ts = game_values.tourstops[iStage];
 		char szStageName[256];
 		snprintf(szStageName, sizeof(szStageName), "(%d) %s", iStage + 1, ts->szName.c_str());
@@ -3271,7 +3265,7 @@ int editor_vehicles()
 		item.iconOverride = ts->iStageType == 1 ? 24 : (ts->iMode >= 1000 ? ts->iMode - 975 : ts->iMode);
 	}
 
-	miVehicleStageField->setCurrentValue(g_wvVehicleStamp.iActionId);
+	miVehicleStageField->setCurrentValue(g_wvVehicleStamp.getActionId());
 
     while (!done) {
 		int framestart = SDL_GetTicks();
@@ -3283,14 +3277,14 @@ int editor_vehicles()
 		//handle messages
         while (SDL_PollEvent(&event)) {
             switch (event.type) {
-            case SDL_QUIT: {
+            case SDL_EVENT_QUIT: {
 					edit_mode = 5;
 					game_values.playerInput.ResetKeys();
 					return EDITOR_EDIT;
 				}
 
-            case SDL_KEYDOWN: {
-                if (event.key.keysym.sym == SDLK_v) {
+            case SDL_EVENT_KEY_DOWN: {
+                if (event.key.key == SDLK_V) {
                     if (!mCurrentMenu->IsModifying()) {
 							edit_mode = 5;
 							game_values.playerInput.ResetKeys();
@@ -3301,7 +3295,7 @@ int editor_vehicles()
 					break;
 				}
 
-            case SDL_MOUSEBUTTONDOWN: {
+            case SDL_EVENT_MOUSE_BUTTON_DOWN: {
 					short iButtonX = bound_to_window_w(event.button.x);
 					short iButtonY = bound_to_window_h(event.button.y);
 
@@ -3377,17 +3371,17 @@ int editor_path()
 		//handle messages
         while (SDL_PollEvent(&event)) {
             switch (event.type) {
-            case SDL_QUIT: {
+            case SDL_EVENT_QUIT: {
 					done = true;
 					break;
 				}
 
-            case SDL_KEYDOWN: {
+            case SDL_EVENT_KEY_DOWN: {
 					edit_mode = 2;
 					return EDITOR_EDIT;
 				}
 
-            case SDL_MOUSEBUTTONDOWN: {
+            case SDL_EVENT_MOUSE_BUTTON_DOWN: {
                 if (event.button.button == SDL_BUTTON_LEFT) {
 						short iButtonX = bound_to_window_w(event.button.x) / TILESIZE;
 						short iButtonY = bound_to_window_h(event.button.y) / TILESIZE;
@@ -3409,7 +3403,7 @@ int editor_path()
 			}
 		}
 
-		SDL_FillRect(screen, NULL, 0x0);
+		SDL_FillSurfaceRect(screen, NULL, 0x0);
 		spr_path.draw(0, 0, {0, 0, 480, 32});
 
 		DrawMessage();
@@ -3645,15 +3639,15 @@ void AdjustBonuses(TourStop * ts)
 
 void SaveStage(short iEditStage)
 {
+	if (game_values.tourstops[iEditStage]->iMode >= 25 && game_values.tourstops[iEditStage]->iMode <= 27)
+		game_values.tourstops[iEditStage]->iMode += 975;
+
 	//Set the number of game mode settings to the maximum so we write them all out
 	game_values.tourstops[iEditStage]->fUseSettings = true;
-	game_values.tourstops[iEditStage]->iNumUsedSettings = g_iNumGameModeSettings[game_values.tourstops[iEditStage]->iMode];
+	game_values.tourstops[iEditStage]->iNumUsedSettings = serializeGMS(game_values.tourstops[iEditStage]->iMode, game_values.gamemodemenusettings).size();
 
 	//Copy the working values back into the structure that will be saved
 	memcpy(&game_values.tourstops[iEditStage]->gmsSettings, &game_values.gamemodemenusettings, sizeof(GameModeSettings));
-
-	if (game_values.tourstops[iEditStage]->iMode >= 25 && game_values.tourstops[iEditStage]->iMode <= 27)
-		game_values.tourstops[iEditStage]->iMode += 975;
 }
 
 void EditStage(short iEditStage)
@@ -3805,7 +3799,7 @@ void NewStage(short * iEditStage)
 	memcpy(&ts->gmsSettings, &game_values.gamemodemenusettings, sizeof(GameModeSettings));
 
 	game_values.tourstops.push_back(ts);
-	g_worldmap.iNumStages++;
+	g_worldmap.setNumStages(g_worldmap.getNumStages() + 1);
 
 	*iEditStage = game_values.tourstops.size() - 1;
 	EditStage(*iEditStage);
@@ -3865,22 +3859,22 @@ int editor_stage()
 		//handle messages
         while (SDL_PollEvent(&event)) {
             switch (event.type) {
-            case SDL_QUIT: {
+            case SDL_EVENT_QUIT: {
 					done = true;
 					break;
 				}
 
-            case SDL_KEYDOWN: {
+            case SDL_EVENT_KEY_DOWN: {
 					//Do not allow saving world by pressing 's' key
 					//World data structures are not in the correct state to be saved
 					//until exiting the stage editor menu in (MENU_CODE_EXIT_APPLICATION == code) below
 
-                if (iEditStage == -1 && event.key.keysym.sym == SDLK_n) {
+                if (iEditStage == -1 && event.key.key == SDLK_N) {
 						NewStage(&iEditStage);
-                } else if ((event.key.keysym.sym == SDLK_ESCAPE || event.key.keysym.sym == SDLK_e) && iEditStage == -1) {
-                    if (g_worldmap.iNumStages == 0) {
+                } else if ((event.key.key == SDLK_ESCAPE || event.key.key == SDLK_E) && iEditStage == -1) {
+                    if (g_worldmap.getNumStages() == 0) {
 							edit_mode = 1;
-                    } else if (set_tile < 6 || set_tile >= g_worldmap.iNumStages + 6) {
+                    } else if (set_tile < 6 || set_tile >= g_worldmap.getNumStages() + 6) {
 							set_tile = 6;
 							edit_mode = 9;
                     } else {
@@ -3888,21 +3882,21 @@ int editor_stage()
 						}
 
 						return EDITOR_EDIT;
-                } else if (mCurrentMenu == &mBonusItemPicker && event.key.keysym.sym >= SDLK_1 && event.key.keysym.sym <= SDLK_4) {
+                } else if (mCurrentMenu == &mBonusItemPicker && event.key.key >= SDLK_1 && event.key.key <= SDLK_4) {
 						TourStop * ts = game_values.tourstops[iEditStage];
                     if (ts->iStageType == 0) {
-							short iPlace = event.key.keysym.sym - SDLK_1 + 1;
+							short iPlace = event.key.key - SDLK_1 + 1;
 
 							TestAndSetBonusItem(ts, iPlace, mouse_x, mouse_y);
 						}
-                } else if ((event.key.keysym.sym == SDLK_PAGEUP && iEditStage > 0) ||
-                          (event.key.keysym.sym == SDLK_PAGEDOWN && iEditStage < g_worldmap.iNumStages - 1)) {
+                } else if ((event.key.key == SDLK_PAGEUP && iEditStage > 0) ||
+                          (event.key.key == SDLK_PAGEDOWN && iEditStage < g_worldmap.getNumStages() - 1)) {
                     if (iEditStage != -1 && mCurrentMenu == &mStageSettingsMenu) {
 							SaveStage(iEditStage);
 
-							if (event.key.keysym.sym == SDLK_PAGEUP)
+							if (event.key.key == SDLK_PAGEUP)
 								iEditStage--;
-							else if (event.key.keysym.sym == SDLK_PAGEDOWN)
+							else if (event.key.key == SDLK_PAGEDOWN)
 								iEditStage++;
 
 							EditStage(iEditStage);
@@ -3917,7 +3911,7 @@ int editor_stage()
 					break;
 				}
 
-            case SDL_MOUSEBUTTONDOWN: {
+            case SDL_EVENT_MOUSE_BUTTON_DOWN: {
 					short iTileX = bound_to_window_w(event.button.x) / TILESIZE;
 					short iTileY = bound_to_window_h(event.button.y) / TILESIZE;
 					short iButtonX = bound_to_window_w(event.button.x);
@@ -3926,7 +3920,7 @@ int editor_stage()
                 if (event.button.button == SDL_BUTTON_LEFT) {
 						//Stages
                     if (iEditStage == -1) {
-                        if (iTileX >= 0 && iTileX < g_worldmap.iNumStages - (iTileY * 20) && iTileY >= 0 && iTileY <= (g_worldmap.iNumStages - 1) / 20) {
+                        if (iTileX >= 0 && iTileX < g_worldmap.getNumStages() - (iTileY * 20) && iTileY >= 0 && iTileY <= (g_worldmap.getNumStages() - 1) / 20) {
 								set_tile = iTileX + (iTileY * 20) + 6;
 
 								edit_mode = 9;  //change to edit mode using warps
@@ -3971,7 +3965,7 @@ int editor_stage()
 						}
                 } else if (event.button.button == SDL_BUTTON_RIGHT) {
                     if (iEditStage == -1) {
-                        if (iTileX >= 0 && iTileX < g_worldmap.iNumStages - (iTileY * 20) && iTileY >= 0 && iTileY <= (g_worldmap.iNumStages - 1) / 20) {
+                        if (iTileX >= 0 && iTileX < g_worldmap.getNumStages() - (iTileY * 20) && iTileY >= 0 && iTileY <= (g_worldmap.getNumStages() - 1) / 20) {
 								iEditStage = iTileX + (iTileY * 20);
 								EditStage(iEditStage);
 
@@ -3985,7 +3979,7 @@ int editor_stage()
 					break;
 				}
 
-            case SDL_MOUSEMOTION: {
+            case SDL_EVENT_MOUSE_MOTION: {
 					bound_mouse_motion_coords();
 					iStageDisplay = -1;
 
@@ -3995,7 +3989,7 @@ int editor_stage()
 							short iMouseX = bound_to_window_w(event.button.x) / TILESIZE;
 							short iMouseY = bound_to_window_h(event.button.y) / TILESIZE;
 
-                        if (iMouseX >= 0 && iMouseX < g_worldmap.iNumStages - (iMouseY * 20) && iMouseY >= 0 && iMouseY <= (g_worldmap.iNumStages - 1) / 20) {
+                        if (iMouseX >= 0 && iMouseX < g_worldmap.getNumStages() - (iMouseY * 20) && iMouseY >= 0 && iMouseY <= (g_worldmap.getNumStages() - 1) / 20) {
 								iStageDisplay = iMouseX + (iMouseY * 20);
 							}
 						}
@@ -4136,22 +4130,24 @@ int editor_stage()
 					//and decrement stage numbers greater than this stage
                     for (short iRow = 0; iRow < iWorldHeight; iRow++) {
                         for (short iCol = 0; iCol < iWorldWidth; iCol++) {
-                            if (g_worldmap.tiles.at(iCol, iRow).iType == iEditStage + 6) {
-								g_worldmap.tiles.at(iCol, iRow).iType = 0;
-                            } else if (g_worldmap.tiles.at(iCol, iRow).iType > iEditStage + 6) {
-								g_worldmap.tiles.at(iCol, iRow).iType--;
+                            if (g_worldmap.getTile(iCol, iRow).iType == iEditStage + 6) {
+								g_worldmap.getTile(iCol, iRow).iType = 0;
+                            } else if (g_worldmap.getTile(iCol, iRow).iType > iEditStage + 6) {
+								g_worldmap.getTile(iCol, iRow).iType--;
 							}
 						}
 					}
 
 					//Scan vehicles and remove references to deleted stage
-					std::vector<WorldVehicle*>::iterator itrVehicle = vehiclelist.begin(), limVehicle = vehiclelist.end();
-                    while (itrVehicle != limVehicle) {
+					std::vector<WorldVehicle*>::iterator itrVehicle = vehiclelist.begin();
+                    while (itrVehicle != vehiclelist.end()) {
 						WorldVehicle * vehicle = *itrVehicle;
-                        if (vehicle->iActionId == iEditStage) {
-							RemoveVehicleFromTile(vehicle->currentTile.x, vehicle->currentTile.y);
-                        } else if (vehicle->iActionId > iEditStage) {
-							vehicle->iActionId--;
+                        if (vehicle->getActionId() == iEditStage) {
+							delete vehicle;
+							itrVehicle = vehiclelist.erase(itrVehicle);
+							continue;
+                        } else if (vehicle->getActionId() > iEditStage) {
+							vehicle->setActionId(vehicle->getActionId() - 1);
 						}
 
 						itrVehicle++;
@@ -4166,7 +4162,7 @@ int editor_stage()
 							delete (*itr);
 
 							game_values.tourstops.erase(itr);
-							g_worldmap.iNumStages--;
+							g_worldmap.setNumStages(g_worldmap.getNumStages() - 1);
 
 							break;
 						}
@@ -4187,15 +4183,15 @@ int editor_stage()
 		drawmap(false, TILESIZE);
 		menu_shade.draw(0, 0);
 
-		int color = SDL_MapRGB(blitdest->format, 0, 0, 255);
+		int color = SDL_MapSurfaceRGB(blitdest, 0, 0, 255);
 
         if (iEditStage == -1) {
-            for (short iStage = 0; iStage < g_worldmap.iNumStages; iStage++) {
+            for (short iStage = 0; iStage < g_worldmap.getNumStages(); iStage++) {
 				short ix = (iStage % 20) << 5;
 				short iy = ((iStage / 20) << 5);
 
 				SDL_Rect r = {ix, iy, 32, 32};
-				SDL_FillRect(blitdest, &r, color);
+				SDL_FillSurfaceRect(blitdest, &r, color);
 
 				rm->spr_worldforegroundspecial[0].draw(ix, iy, {(iStage % 10) << 5, (iStage / 10) << 5, 32, 32});
 			}
@@ -4221,7 +4217,7 @@ int editor_stage()
 				short iy = 20;
 
 				SDL_Rect r = {ix, iy, 32, 32};
-				SDL_FillRect(blitdest, &r, color);
+				SDL_FillSurfaceRect(blitdest, &r, color);
 
 				rm->spr_worldforegroundspecial[0].draw(ix, iy, {(iEditStage % 10) << 5, (iEditStage / 10) << 5, 32, 32});
 			}
@@ -4409,11 +4405,11 @@ int display_help()
 		//handle messages
         while (SDL_PollEvent(&event)) {
             switch (event.type) {
-				case SDL_QUIT:
+				case SDL_EVENT_QUIT:
 					return 0;
 				break;
 
-				case SDL_KEYDOWN:
+				case SDL_EVENT_KEY_DOWN:
 					return 0;
 				break;
 
@@ -4468,17 +4464,17 @@ bool dialog(const char * title, const char * instructions, char * input, int inp
 		//handle messages
         while (SDL_PollEvent(&event)) {
             switch (event.type) {
-				case SDL_QUIT:
+				case SDL_EVENT_QUIT:
 					return false;
 				break;
 
-				case SDL_KEYDOWN:
+				case SDL_EVENT_KEY_DOWN:
 
-                if (event.key.keysym.sym == SDLK_KP_ENTER || event.key.keysym.sym == SDLK_RETURN) {
+                if (event.key.key == SDLK_KP_ENTER || event.key.key == SDLK_RETURN) {
 						return true;
-                } else if (event.key.keysym.sym == SDLK_ESCAPE) {
+                } else if (event.key.key == SDLK_ESCAPE) {
 						return false;
-                } else if (event.key.keysym.sym == SDLK_BACKSPACE) {
+                } else if (event.key.key == SDLK_BACKSPACE) {
                     if (currentChar > 0) {
 							input[currentChar-1] = '\0';
 
@@ -4496,37 +4492,37 @@ bool dialog(const char * title, const char * instructions, char * input, int inp
                 } else {
 
 						/* I realize the if statement below is long and can be substituted with
-						the function isalnum(event.key.keysym.sym) but I did it this way because
+						the function isalnum(event.key.key) but I did it this way because
 						isalnum acts funny (ie wrong) when the number pad is pressed. */
-                    if ((isdigit(event.key.keysym.sym) || event.key.keysym.sym == 45 || event.key.keysym.sym == 32 || event.key.keysym.sym == 61 || (event.key.keysym.sym >= 95 && event.key.keysym.sym <= 122)) && currentChar < (unsigned)inputsize - 1) {
+                    if ((isdigit(event.key.key) || event.key.key == 45 || event.key.key == 32 || event.key.key == 61 || (event.key.key >= 95 && event.key.key <= 122)) && currentChar < (unsigned)inputsize - 1) {
 							//insert character into fileName and onScreenText and increment current char
-							Uint8 key = event.key.keysym.sym;
+							Uint8 key = event.key.key;
 
-                        const Uint8 * keystate = SDL_GetKeyboardState(NULL);
+                        const bool* keystate = SDL_GetKeyboardState(NULL);
                         if (CheckKey(keystate, SDLK_LSHIFT) || CheckKey(keystate, SDLK_RSHIFT)) {
-								if (event.key.keysym.sym == 45)
+								if (event.key.key == 45)
 									key = 95;
-								else if (event.key.keysym.sym >= 95 && event.key.keysym.sym <= 122)
+								else if (event.key.key >= 95 && event.key.key <= 122)
 									key-= 32;  //Capitalize
-								else if (event.key.keysym.sym == 48)
+								else if (event.key.key == 48)
 									key = 41;
-								else if (event.key.keysym.sym == 49)
+								else if (event.key.key == 49)
 									key = 33;
-								else if (event.key.keysym.sym == 50)
+								else if (event.key.key == 50)
 									key = 64;
-								else if (event.key.keysym.sym == 51)
+								else if (event.key.key == 51)
 									key = 35;
-								else if (event.key.keysym.sym == 52)
+								else if (event.key.key == 52)
 									key = 36;
-								else if (event.key.keysym.sym == 53)
+								else if (event.key.key == 53)
 									key = 37;
-								else if (event.key.keysym.sym == 54)
+								else if (event.key.key == 54)
 									key = 94;
-								else if (event.key.keysym.sym == 55)
+								else if (event.key.key == 55)
 									key = 38;
-								else if (event.key.keysym.sym == 57)
+								else if (event.key.key == 57)
 									key = 40;
-								else if (event.key.keysym.sym == 61)
+								else if (event.key.key == 61)
 									key = 43;
 							}
 
@@ -4569,7 +4565,7 @@ int find()
 	//char mapLocation[FILEBUFSIZE] = "maps/";
 
     if (dialog("Find Map", "Enter name:", fileName, 64)) {
-		strcpy(findstring, fileName);
+		findstring = fileName;
 
         if (worldlist->find(findstring)) {
             game_values.worldindex = worldlist->currentIndex();
@@ -4592,7 +4588,7 @@ int clear_world()
 void loadcurrentworld()
 {
 	game_values.worldindex = worldlist->currentIndex();
-	g_worldmap = WorldMap(worldlist->at(game_values.worldindex).string(), TILESIZE);
+	g_worldmap = loadWorldMap(worldlist->at(game_values.worldindex).string(), TILESIZE);
 	ReadVehiclesIntoEditor();
 	ReadWarpsIntoEditor();
 
@@ -4635,7 +4631,7 @@ int savecurrentworld()
 
 	WriteVehiclesIntoWorld();
 	WriteWarpsIntoWorld();
-	g_worldmap.Save(worldlist->at(game_values.worldindex).string());
+	saveWorldMap(g_worldmap, worldlist->at(game_values.worldindex).string());
 	return 0;
 }
 
@@ -4654,7 +4650,7 @@ void SetDisplayMessage(short iTime,
 
 int findcurrentstring()
 {
-    if (findstring[0] != '\0') {
+    if (!findstring.empty()) {
         if (worldlist->find(findstring)) {
             game_values.worldindex = worldlist->currentIndex();
 			loadcurrentworld();
@@ -4727,8 +4723,8 @@ int resize_world()
 
 		std::vector<WorldVehicle*>::iterator itrVehicle = vehiclelist.begin(), limVehicle = vehiclelist.end();
         while (itrVehicle != limVehicle) {
-			if ((*itrVehicle)->currentTile.x >= iWidth || (*itrVehicle)->currentTile.y >= iHeight) {
-				RemoveVehicleFromTile((*itrVehicle)->currentTile.x, (*itrVehicle)->currentTile.y);
+			if ((*itrVehicle)->getCurrentTile().x >= iWidth || (*itrVehicle)->getCurrentTile().y >= iHeight) {
+				RemoveVehicleFromTile((*itrVehicle)->getCurrentTile().x, (*itrVehicle)->getCurrentTile().y);
 				//List was modified, restart.
 				itrVehicle = vehiclelist.begin();
 				limVehicle = vehiclelist.end();
@@ -4760,7 +4756,7 @@ void takescreenshot()
 
     for (short iScreenshotSize = 0; iScreenshotSize < 3; iScreenshotSize++) {
 		short iTileSize = iTileSizes[iScreenshotSize];
-		g_worldmap = WorldMap(worldlist->at(game_values.worldindex).string(), iTileSize);
+		g_worldmap = loadWorldMap(worldlist->at(game_values.worldindex).string(), iTileSize);
 
 		short w, h;
 		g_worldmap.GetWorldSize(&w, &h);
@@ -4776,10 +4772,10 @@ void takescreenshot()
         while (itr != lim) {
 			WorldVehicle * vehicle = *itr;
 
-			short ix = vehicle->currentTile.x * iTileSize;
-			short iy = vehicle->currentTile.y * iTileSize;
+			short ix = vehicle->getCurrentTile().x * iTileSize;
+			short iy = vehicle->getCurrentTile().y * iTileSize;
 
-			rm->spr_worldvehicle[iScreenshotSize].draw(ix, iy, {vehicle->iDrawDirection * iTileSize, vehicle->iDrawSprite * iTileSize, iTileSize, iTileSize});
+			rm->spr_worldvehicle[iScreenshotSize].draw(ix, iy, {vehicle->getDrawDirection() * iTileSize, vehicle->getDrawSprite() * iTileSize, iTileSize, iTileSize});
 
 			itr++;
 		}
@@ -4811,6 +4807,6 @@ void takescreenshot()
 		IMG_SavePNG(sScreenshot.getSurface(), convertPath(szSaveFile).c_str());
 	}
 
-	g_worldmap = WorldMap(worldlist->at(game_values.worldindex).string(), iTileSizes[0]);
+	g_worldmap = loadWorldMap(worldlist->at(game_values.worldindex).string(), iTileSizes[0]);
 	blitdest = screen;
 }

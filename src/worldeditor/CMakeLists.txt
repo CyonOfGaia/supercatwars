@@ -3,6 +3,16 @@ add_executable(smw-worldedit WIN32
 	../common/movingplatform.h
 	../smw/world.cpp
 	../smw/world.h
+	../smw/world/WorldMapIO.cpp
+	../smw/world/WorldMapIO.h
+	../smw/world/WorldMovingObject.cpp
+	../smw/world/WorldMovingObject.h
+	../smw/world/WorldPlayer.cpp
+	../smw/world/WorldPlayer.h
+	../smw/world/WorldVehicle.cpp
+	../smw/world/WorldVehicle.h
+	../smw/world/WorldWarp.cpp
+	../smw/world/WorldWarp.h
 	../smw/objects/IO_BulletBillCannon.cpp
 	../smw/objects/IO_BulletBillCannon.h
 	../smw/objects/IO_FlameCannon.cpp
@@ -44,10 +54,6 @@ endif()
 
 target_link_libraries(smw-worldedit CommonFiles)
 target_compile_definitions(smw-worldedit PRIVATE IS_WORLDEDIT)
-
-if (TARGET SDL2::SDL2main)
-    target_link_libraries(smw-worldedit SDL2::SDL2main)
-endif()
 
 #
 # Installation

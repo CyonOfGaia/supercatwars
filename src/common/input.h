@@ -1,7 +1,8 @@
 #ifndef INPUT_H
 #define INPUT_H
 
-#include "SDL.h"
+#include <SDL3/SDL.h>
+
 #include <stdint.h>
 
 //This set of classes takes SDL input events, sees if a
@@ -13,7 +14,8 @@
 
 #define NUM_KEYS 8
 
-#define DEVICE_KEYBOARD     -1
+constexpr SDL_JoystickID DEVICE_KEYBOARD_ID = 0;
+constexpr SDL_GUID DEVICE_KEYBOARD_GUID = {};
 
 #define JOYSTICK_DEAD_ZONE  16384
 #define MOUSE_X_DEAD_ZONE   0
@@ -41,7 +43,7 @@
 #define JOY_HAT_RIGHT       11
 #define JOY_BUTTON_START    12
 
-#define KEY_NONE            -1
+#define KEY_NONE            SDLK_UNKNOWN
 
 
 struct CKeyState {
@@ -92,7 +94,7 @@ struct COutputControl {
 };
 
 struct CInputPlayerControl {
-	short iDevice;
+	SDL_JoystickID iDevice; // SDL joystick instance ID, DEVICE_KEYBOARD_ID for keyboard
 	CInputControl inputGameControls[2]; //0 == game controls, 1 == menu controls
 };
 

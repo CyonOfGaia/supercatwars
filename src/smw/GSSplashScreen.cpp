@@ -4,6 +4,7 @@
 #include "MapList.h"
 #include "Game.h"
 #include "GameValues.h"
+#include "joystick.h"
 #include "GSMenu.h"
 #include "GSGameplay.h"
 #include "eyecandy.h"
@@ -114,16 +115,21 @@ void SplashScreenState::update()
     while (SDL_PollEvent(&loop_event)) {
         switch (loop_event.type) {
 
-        case SDL_QUIT: {
+        case SDL_EVENT_QUIT: {
             game_values.appstate = AppState::Quit;
             return;
         }
         break;
 
-        case SDL_KEYDOWN: {
-            switch (loop_event.key.keysym.sym) {
+        case SDL_EVENT_JOYSTICK_ADDED:
+        case SDL_EVENT_JOYSTICK_REMOVED:
+            JoystickManager::instance().handleEvent(loop_event);
+            break;
+
+        case SDL_EVENT_KEY_DOWN: {
+            switch (loop_event.key.key) {
             case SDLK_RETURN:
-                if (loop_event.key.keysym.mod & (KMOD_LALT | KMOD_RALT)) {
+                if (loop_event.key.mod & (SDL_KMOD_LALT | SDL_KMOD_RALT)) {
                     game_values.fullscreen = !game_values.fullscreen;
                     gfx_changefullscreen(game_values.fullscreen);
                     blitdest = screen;
@@ -131,7 +137,7 @@ void SplashScreenState::update()
                 break;
 
             case SDLK_F4:
-                if (loop_event.key.keysym.mod & (KMOD_LALT | KMOD_RALT)) {
+                if (loop_event.key.mod & (SDL_KMOD_LALT | SDL_KMOD_RALT)) {
                     game_values.appstate = AppState::Quit;
                     return;
                 }
@@ -219,7 +225,7 @@ void SplashScreenState::update()
     //  }
     //}
 
-    SDL_FillRect(screen, NULL, 0x0);
+    SDL_FillSurfaceRect(screen, NULL, 0x0);
 
     //if (state == 0 || state == 1 || state == 2)
     //{

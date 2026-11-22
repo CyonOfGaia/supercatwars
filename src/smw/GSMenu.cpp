@@ -4,6 +4,8 @@
 #include "Game.h"
 #include "GameValues.h"
 #include "GSGameplay.h"
+#include "GameplayStyles.h"
+#include "joystick.h"
 #include "net.h"
 #include "map.h"
 #include "MapList.h"
@@ -26,6 +28,7 @@
 #include "Version.h"
 #include "world.h"
 #include "WorldTourStop.h"
+#include "world/WorldMapIO.h"
 
 #include "menu/BonusWheelMenu.h"
 #include "menu/GameSettingsMenu.h"
@@ -181,7 +184,7 @@ void MenuState::onEnterState()
     fNeedMenuMusicReset = false;
 
     if (game_values.gamemode->winningteam > -1 && game_values.tournamentwinner == -1 &&
-            (((game_values.matchtype == MatchType::SingleGame || game_values.matchtype == MatchType::QuickGame || game_values.matchtype == MatchType::MiniGame || game_values.matchtype == MatchType::Tournament || game_values.matchtype == MatchType::NetGame) && game_values.bonuswheel == 2) || (game_values.matchtype == MatchType::Tour && game_values.tourstops[game_values.tourstopcurrent - 1]->iBonusType))) {
+            (((game_values.matchtype == MatchType::SingleGame || game_values.matchtype == MatchType::QuickGame || game_values.matchtype == MatchType::MiniGame || game_values.matchtype == MatchType::Tournament || game_values.matchtype == MatchType::NetGame) && game_values.bonuswheel == BonusWheelStyle::EveryGame) || (game_values.matchtype == MatchType::Tour && game_values.tourstops[game_values.tourstopcurrent - 1]->iBonusType))) {
         mBonusWheelMenu->miBonusWheel->Reset(false);
         mCurrentMenu = mBonusWheelMenu.get();
     } else if (game_values.matchtype != MatchType::SingleGame && game_values.matchtype != MatchType::QuickGame && game_values.matchtype != MatchType::MiniGame && game_values.matchtype != MatchType::NetGame) {
@@ -395,28 +398,33 @@ void MenuState::update()
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
         switch (event.type) {
-        case SDL_QUIT:
+        case SDL_EVENT_QUIT:
             Exit();
             return;
             break;
 
-        case SDL_KEYDOWN: {
-            if (event.key.keysym.sym == SDLK_F1) {
+        case SDL_EVENT_JOYSTICK_ADDED:
+        case SDL_EVENT_JOYSTICK_REMOVED:
+            JoystickManager::instance().handleEvent(event);
+            break;
+
+        case SDL_EVENT_KEY_DOWN: {
+            if (event.key.key == SDLK_F1) {
                 game_values.showfps = !game_values.showfps;
             }
 
 #ifdef _DEBUG
-            if (event.key.keysym.sym == SDLK_F2) {
+            if (event.key.key == SDLK_F2) {
                 game_values.frameadvance = !game_values.frameadvance;
             }
 #endif
-            if (event.key.keysym.mod & (KMOD_LALT | KMOD_RALT)) {
+            if (event.key.mod & (SDL_KMOD_LALT | SDL_KMOD_RALT)) {
                 //ALT + F4 = close window
-                if (event.key.keysym.sym == SDLK_F4) {
+                if (event.key.key == SDLK_F4) {
                     Exit();
                     return;
                 } //ALT + Enter = fullscreen/windowed toggle
-                else if (event.key.keysym.sym == SDLK_RETURN) {
+                else if (event.key.key == SDLK_RETURN) {
                     game_values.fullscreen = !game_values.fullscreen;
 					gfx_changefullscreen(game_values.fullscreen);
                     blitdest = screen;
@@ -425,12 +433,12 @@ void MenuState::update()
                 }
             }
 
-            if (event.key.keysym.sym == SDLK_INSERT) {
+            if (event.key.key == SDLK_INSERT) {
                 gfx_take_screenshot();
             }
 #ifdef _DEBUG
             //Pressing insert in debug mode turns on automated testing
-            if (event.key.keysym.sym == SDLK_F8) {
+            if (event.key.key == SDLK_F8) {
                 g_fAutoTest = !g_fAutoTest;
 
                 if (g_fAutoTest) {
@@ -441,7 +449,7 @@ void MenuState::update()
                 }
             }
 
-            if (event.key.keysym.sym == SDLK_HOME) {
+            if (event.key.key == SDLK_HOME) {
                 g_fRecordTest = !g_fRecordTest;
 
                 if (g_fRecordTest) {
@@ -451,7 +459,7 @@ void MenuState::update()
                 }
             }
 
-            if (event.key.keysym.sym == SDLK_END) {
+            if (event.key.key == SDLK_END) {
                 AddEmtpyLineToScript();
             }
 
@@ -720,7 +728,7 @@ void MenuState::update()
                 } else if (game_values.matchtype == MatchType::World) {
                     printf("  Match type: World\n");
                     try {
-                        g_worldmap = WorldMap(worldlist->at(game_values.worldindex).string(), TILESIZE);
+                        g_worldmap = loadWorldMap(worldlist->at(game_values.worldindex).string(), TILESIZE);
 
                         mTournamentScoreboardMenu->miTournamentScoreboard->CreateScoreboard(score_cnt, 0, &rm->spr_tour_markers);
 
@@ -812,7 +820,7 @@ void MenuState::update()
         } else if (MENU_CODE_BACK_TO_GAME_SETUP_MENU == code) {
             bool fNeedTeamAnnouncement = false;
             if (game_values.matchtype == MatchType::World) {
-                if (game_values.tournamentwinner == -2 || (game_values.tournamentwinner >= 0 && game_values.bonuswheel == 0)) {
+                if (game_values.tournamentwinner == -2 || (game_values.tournamentwinner >= 0 && game_values.bonuswheel == BonusWheelStyle::Off)) {
                     ResetTournamentBackToMainMenu();
                 } else if (game_values.tournamentwinner >= 0) {
                     mBonusWheelMenu->miBonusWheel->Reset(true);
@@ -827,7 +835,7 @@ void MenuState::update()
                 if (game_values.tournamentwinner == -2) { //Tied Tour Result
                     ResetTournamentBackToMainMenu();
                 } else if (game_values.tournamentwinner >= 0) { //Tournament/Tour Won and Bonus Wheel will be spun
-                    if (game_values.bonuswheel == 0 || (game_values.matchtype == MatchType::Tour && !game_values.tourstops[game_values.tourstopcurrent - 1]->iBonusType)) {
+                    if (game_values.bonuswheel == BonusWheelStyle::Off || (game_values.matchtype == MatchType::Tour && !game_values.tourstops[game_values.tourstopcurrent - 1]->iBonusType)) {
                         ResetTournamentBackToMainMenu();
                     } else {
                         mBonusWheelMenu->miBonusWheel->Reset(true);
@@ -920,7 +928,7 @@ void MenuState::update()
                         ResetTournamentBackToMainMenu();
                 } else {
                     if ((game_values.matchtype == MatchType::Tour || game_values.matchtype == MatchType::Tournament) && game_values.tournamentwinner == -1 &&
-                            ((game_values.matchtype != MatchType::Tour && game_values.bonuswheel == 2) || (game_values.matchtype == MatchType::Tour && game_values.tourstops[game_values.tourstopcurrent - 1]->iBonusType))) {
+                            ((game_values.matchtype != MatchType::Tour && game_values.bonuswheel == BonusWheelStyle::EveryGame) || (game_values.matchtype == MatchType::Tour && game_values.tourstops[game_values.tourstopcurrent - 1]->iBonusType))) {
                         mCurrentMenu = mTournamentScoreboardMenu.get();
                     } else if (game_values.matchtype == MatchType::SingleGame) {
                         mCurrentMenu = mGameSettingsMenu.get();
@@ -1247,7 +1255,7 @@ void MenuState::update()
     if (mCurrentMenu != mWorldMenu.get())
         rm->menu_backdrop.draw(0, 0);
     else
-        SDL_FillRect(screen, NULL, SDL_MapRGB(screen->format, 0, 0, 0));
+        SDL_FillSurfaceRect(screen, NULL, SDL_MapSurfaceRGB(screen, 0, 0, 0));
 
     mCurrentMenu->Update();
     mCurrentMenu->Draw();
@@ -1598,7 +1606,7 @@ void MenuState::StartGame()
     }
 
     //Load soundtrack music if changed
-    if (game_values.loadedmusic != musiclist->currentIndex()) {
+    if (game_values.loadedmusic != (short)musiclist->currentIndex()) {
         game_values.loadedmusic = (short)musiclist->currentIndex();
         rm->backgroundmusic[1] = sfxMusic(musiclist->music(0)); //Stage Clear
         rm->backgroundmusic[3] = sfxMusic(musiclist->music(2)); //Tournament Menu

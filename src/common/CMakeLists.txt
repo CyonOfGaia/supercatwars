@@ -11,8 +11,11 @@ add_library(CommonFiles STATIC
     Game.cpp
     Game.h
     GameMode.h
+    GameModeType.h
     GameModeSettings.cpp
     GameModeSettings.h
+    GameModeSettingsSerialization.cpp
+    GameModeSettingsSerialization.h
     GameValues.cpp
     GameValues.h
     gfx.cpp
@@ -29,6 +32,8 @@ add_library(CommonFiles STATIC
     global.cpp
     input.cpp
     input.h
+    joystick.cpp
+    joystick.h
     linfunc.cpp
     linfunc.h
     map.cpp
@@ -60,6 +65,7 @@ add_library(CommonFiles STATIC
     TilesetManager.h
     TileTypes.cpp
     TileTypes.h
+    TomlConfig.h
     uicontrol.cpp
     uicontrol.h
     uimenu.cpp
@@ -77,16 +83,18 @@ add_library(CommonFiles STATIC
 
 add_subdirectory(ui)
 target_compile_features(CommonFiles PUBLIC cxx_std_20)
+target_compile_definitions(CommonFiles PUBLIC
+    GIT_REVISION="${SMW_GIT_REVISION}"
+    GIT_DATE="${SMW_GIT_DATE}"
+)
 
 if (SDL2_FORCE_GLES)
     target_compile_definitions(CommonFiles PUBLIC SDL2_FORCE_GLES)
 endif()
 
-
-if(NOT EMSCRIPTEN)
-    target_link_libraries(CommonFiles
-        SDL2::SDL2
-        SDL2_image::SDL2_image
-        SDL2_mixer::SDL2_mixer
-    )
-endif()
+target_link_libraries(CommonFiles
+    SDL3::SDL3
+    SDL3_image::SDL3_image
+    SDL3_mixer::SDL3_mixer
+    toml11::toml11
+)

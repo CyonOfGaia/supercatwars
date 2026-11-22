@@ -2,9 +2,9 @@
 #define GAMESTATE_SPLASHSCREEN_H
 
 #include "GameState.h"
-
-#include "SDL.h"
 #include "gfx.h"
+
+#include <SDL3/SDL.h>
 
 class SplashScreenState : public GameState
 {
@@ -18,8 +18,6 @@ class SplashScreenState : public GameState
         void onLeaveState() override;
 
         SDL_Event loop_event;
-        gfxSprite* menu_dpi_logo;
-        gfxSprite* menu_contest_winners;
         gfxSprite* menu_credits;
         int alpha;
         int state;

@@ -42,6 +42,7 @@ MI_SelectField<T>::MI_SelectField(const MI_SelectField<T>& other)
     , m_items(other.m_items)
     , m_goodRandomIndices(other.m_goodRandomIndices)
     , m_outputPtr(other.m_outputPtr)
+    , m_onChanged(other.m_onChanged)
 {
     setCurrentIndex(other.m_index);
 
@@ -252,6 +253,9 @@ void MI_SelectField<T>::updateOutput() const
 {
     if (m_outputPtr)
         *m_outputPtr = currentValue();
+
+    if (m_onChanged)
+        m_onChanged(currentValue());
 }
 
 
@@ -367,6 +371,7 @@ bool MI_SelectField<T>::moveRandom()
 
 template class MI_SelectField<bool>;
 template class MI_SelectField<short>;
+template class MI_SelectField<SDL_JoystickID>;
 
 #include "MatchTypes.h"
 template class MI_SelectField<Boss>;
@@ -388,3 +393,6 @@ template class MI_SelectField<StarStyle>;
 template class MI_SelectField<TeamCollisionStyle>;
 template class MI_SelectField<TournamentControlStyle>;
 template class MI_SelectField<WarpLockStyle>;
+template class MI_SelectField<BonusWheelStyle>;
+template class MI_SelectField<MysteryMushroomSwapStyle>;
+template class MI_SelectField<PowerupDropRateStyle>;

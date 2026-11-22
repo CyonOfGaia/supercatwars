@@ -1,3 +1,5 @@
+![In-game screenshots](docs/gfx/screenshots.png)
+
 # Super Mario War
 
 ![Linux status][build-linux-img] ![Windows status][build-windows-img] ![macOS status][build-macos-img] [![Discord][discord-img]][discord-link]
@@ -35,6 +37,8 @@ As for the game, unfortunately it became clear very soon that the quality and st
 Eventually I've managed to make the network multiplayer working, but it's far from perfect. With good conditions, on local networks it may work fine, but subtle bugs and lag usually makes the gameplay over the internet far from optimal. A proper implementation would likely require a redesign of several core parts of the game and another several hundred clean up/refactoring patches to make the code maintainable. And, with this kind of project of course, there's also a chance that next morning you get a cease-and-desist letter from whatever company.
 
 For me, this was the point where I've stopped putting more time on this project (2016). In the long term, a complete rewrite might be faster and more effective than patching the original game for years. Either way, I hope I've left the project in a better state than it was, and that it will be of use for future developers. Have fun!
+
+Update, 2026: Looks like I've ended up working on it some more. While keeping the game alive, there also has been significant effort to modernize the codebase and try to make it maintainable. There have been some performance improvements, stability fixes, we have an SDL3 port, and the game continues to support newer operating systems. There's also [Super Cat Wars](https://gamejolt.com/games/supercatwars/627452), a complete overhaul mod with its own graphics, maps, and worlds. Give it a try!
 
 [Old releases for Mario War and SMW can be found here.](https://github.com/mmatyas/supermariowar/releases/tag/1.8)
 
@@ -84,20 +88,19 @@ The game uses artwork and sounds from Nintendo games. We hope that this noncomme
 
 - C++20 supporting compiler
 - CMake
-- SDL 2, with
-    - SDL_image
-    - SDL_mixer
+- SDL 3, with SDL_image and SDL_mixer
+  - in case you still want to use SDL 2, consider building the `sdl2` branch
 - zlib
-- yaml-cpp
+- toml11
 - ENet (optional)
 
 If you're using package managers, you can get them like this:
 
-- Debian-based: `apt install cmake libsdl2-dev libsdl2-image-dev libsdl2-mixer-dev zlib1g-dev libyaml-cpp-dev libenet-dev`
-- Fedora/RPM: `yum install cmake SDL2-devel SDL2_image-devel SDL2_mixer-devel zlib-devel yaml-cpp-devel enet-devel`
-- Arch: `pacman -S cmake sdl2 sdl2_image sdl2_mixer zlib yaml-cpp enet`
+- Debian-based: `apt install cmake libsdl3-dev libsdl3-image-dev libsdl3-mixer-dev zlib1g-dev libtoml11-dev libenet-dev`
+- Fedora/RPM: `yum install cmake SDL3-devel SDL3_image-devel SDL3_mixer-devel zlib-devel toml11-devel enet-devel`
+- Arch: `pacman -S cmake sdl3 sdl3_image sdl3_mixer zlib toml11 enet`
 
-For all dependencies, you can choose to use a bundled version of them. This is useful if the dependencies are not available for your OS, are outdated, or you simply don't want to install them on your system. In this case, you can tell CMake to download and build the library along with the game come. Please see the [Build configuration](#build-configuration) for enabling this feature.
+If a dependency is not available on your system, CMake will automatically try to download and build it.
 
 ### Get the code
 

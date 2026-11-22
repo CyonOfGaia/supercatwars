@@ -1,16 +1,24 @@
 #include "GameValues.h"
 
+#include "TomlConfig.h"
 #include "FileIO.h"
 #include "FileList.h"
 #include "GameMode.h"
 #include "GlobalConstants.h"
+#include "joystick.h"
 #include "MapList.h" // req. only by WriteConfig
 #include "path.h"
 #include "Version.h"
 #include "sfx.h"
 
+#include <toml.hpp>
 #include <stdio.h>
 #include <stdexcept>
+#include <algorithm>
+#include <array>
+#include <cstring>
+#include <filesystem>
+#include <vector>
 
 // TODO: Refactor externs
 
@@ -27,21 +35,19 @@ extern GraphicsList *worldgraphicspacklist;
 extern GraphicsList *gamegraphicspacklist;
 extern SoundsList *soundpacklist;
 
-extern short joystickcount;
-
 
 //[Keyboard/Joystick][Game/Menu][NumPlayers][NumKeys]  left, right, jump, down, turbo, powerup, start, cancel
 SDL_Keycode controlkeys[2][2][4][NUM_KEYS] = { { { {SDLK_LEFT, SDLK_RIGHT, SDLK_UP, SDLK_DOWN, SDLK_RCTRL, SDLK_RSHIFT, SDLK_RETURN, SDLK_ESCAPE},
-            {SDLK_a, SDLK_d, SDLK_w, SDLK_s, SDLK_e, SDLK_q, SDLK_UNKNOWN, SDLK_UNKNOWN},
-            {SDLK_g, SDLK_j, SDLK_y, SDLK_h, SDLK_u, SDLK_t, SDLK_UNKNOWN, SDLK_UNKNOWN},
-            {SDLK_l, SDLK_QUOTE, SDLK_p, SDLK_SEMICOLON, SDLK_LEFTBRACKET, SDLK_o, SDLK_UNKNOWN, SDLK_UNKNOWN}
+            {SDLK_A, SDLK_D, SDLK_W, SDLK_S, SDLK_E, SDLK_Q, SDLK_UNKNOWN, SDLK_UNKNOWN},
+            {SDLK_G, SDLK_J, SDLK_Y, SDLK_H, SDLK_U, SDLK_T, SDLK_UNKNOWN, SDLK_UNKNOWN},
+            {SDLK_L, SDLK_APOSTROPHE, SDLK_P, SDLK_SEMICOLON, SDLK_LEFTBRACKET, SDLK_O, SDLK_UNKNOWN, SDLK_UNKNOWN}
         },
 
         //up, down, left, right, select, cancel, random, fast scroll
         {   {SDLK_UP, SDLK_DOWN, SDLK_LEFT, SDLK_RIGHT, SDLK_RETURN, SDLK_ESCAPE, SDLK_SPACE,  SDLK_LSHIFT},
-            {SDLK_w, SDLK_s, SDLK_a, SDLK_d, SDLK_e, SDLK_q, SDLK_UNKNOWN, SDLK_UNKNOWN},
-            {SDLK_y, SDLK_h, SDLK_g, SDLK_j, SDLK_u, SDLK_t, SDLK_UNKNOWN, SDLK_UNKNOWN},
-            {SDLK_p, SDLK_SEMICOLON, SDLK_l, SDLK_QUOTE, SDLK_LEFTBRACKET, SDLK_o, SDLK_UNKNOWN, SDLK_UNKNOWN}
+            {SDLK_W, SDLK_S, SDLK_A, SDLK_D, SDLK_E, SDLK_Q, SDLK_UNKNOWN, SDLK_UNKNOWN},
+            {SDLK_Y, SDLK_H, SDLK_G, SDLK_J, SDLK_U, SDLK_T, SDLK_UNKNOWN, SDLK_UNKNOWN},
+            {SDLK_P, SDLK_SEMICOLON, SDLK_L, SDLK_APOSTROPHE, SDLK_LEFTBRACKET, SDLK_O, SDLK_UNKNOWN, SDLK_UNKNOWN}
         }
     },
     //left, right, jump, down, turbo, powerup, start, cancel;
@@ -109,6 +115,18 @@ constexpr short DEFAULT_POWERUP_PRESETS[NUM_POWERUP_PRESETS][NUM_POWERUPS] {
     {0, 3, 0, 0, 0, 8, 4, 0, 0, 0, 5, 2,10, 9, 4, 5, 0, 0, 0, 4, 3, 0, 4, 0, 8, 5}, //Super Mario Bros 3
     {0,10, 0, 0, 0,10, 6, 0, 0, 0, 2, 0, 8, 4, 2, 4, 0, 4, 0, 0, 0, 0, 5, 0, 0, 0}, //Super Mario World
 };
+
+std::string GetOptionsTomlPath() {
+    return GetHomeDirectory() + "options.toml";
+}
+
+std::string GetOptionsBinPath() {
+    return GetHomeDirectory() + "options.bin";
+}
+
+std::string GetControlsBinPath() {
+    return GetHomeDirectory() + "controls.sdl2.bin";
+}
 } // namespace
 
 extern CGameValues game_values;
@@ -196,7 +214,7 @@ void CGameValues::init()
     wandfreezetime    = 310;  //5 seconds of freeze time
     wandlimit     = 0;  //Unlimited
     storedpowerupdelay  = 4;
-    bonuswheel      = 1;
+    bonuswheel      = BonusWheelStyle::TournamentWin;
     keeppowerup     = false;
     showwinningcrown  = false;
     startgamecountdown  = true;
@@ -204,11 +222,11 @@ void CGameValues::init()
     deadteamnotice    = true;
     playnextmusic   = false;
     pointspeed      = 20;
-    swapstyle     = 1;  //Blink then swap
+    swapstyle     = MysteryMushroomSwapStyle::Blink;  //Blink then swap
     worldpointsbonus  = -1; //no world multiplier until player uses item to boost it
     singleplayermode  = -1;
     worldskipscoreboard = false;
-    overridepowerupsettings = 0;
+    overridepowerupsettings = PowerupDropRateStyle::UseMap;
     secretsenabled  = false;
     poweruppreset   = 0;
     tournamentcontrolstyle = TournamentControlStyle::All;
@@ -233,7 +251,7 @@ void CGameValues::init()
 
         //Setup the default key/button input configurations
         for (short iInputType = 0; iInputType < 2; iInputType++) { //for keyboard/joystick
-            inputConfiguration[iPlayer][iInputType].iDevice = iInputType - 1;
+            inputConfiguration[iPlayer][iInputType].iDevice = DEVICE_KEYBOARD_ID;
 
             for (short iInputState = 0; iInputState < 2; iInputState++) { //for game/menu
                 for (short iKey = 0; iKey < NUM_KEYS; iKey++) {
@@ -288,10 +306,33 @@ void CGameValues::resetSecretCounters()
     unlocksecretunlocked[3] = false;
 }
 
-// Read saved settings from disk
+void CGameConfig::ReadConfig()
+{
+    if (FileExists(GetOptionsTomlPath())) {
+        ReadTomlConfig();
+    } else {
+        ReadBinaryConfig();
+    }
+    ReadInputConfig();
+}
+
+void CGameConfig::WriteConfig() const
+{
+    WriteTomlConfig();
+    WriteInputConfig();
+
+    maplist->WriteFilters();
+    maplist->WriteMapSummaryCache();
+}
+
 void CGameConfig::ReadBinaryConfig() {
+    const std::string options_path(GetOptionsBinPath());
+    if (!FileExists(options_path)) {
+        printf("[config] No options.bin, using default values.\n");
+        return;
+    }
+
     try {
-        std::string options_path(GetHomeDirectory() + "options.bin");
         BinaryFile options(options_path, "rb");
         if (!options.is_open())
             throw std::runtime_error("Could not open " + options_path);
@@ -322,13 +363,13 @@ void CGameConfig::ReadBinaryConfig() {
         outofboundstime = options.read_u8();
         cpudifficulty = options.read_u8();
         framelimiter = options.read_u8();
-        bonuswheel = options.read_u8();
+        bonuswheel = static_cast<BonusWheelStyle>(options.read_u8());
         keeppowerup = options.read_u8();
         showwinningcrown = options.read_u8();
         playnextmusic = options.read_u8();
         pointspeed = options.read_u8();
-        swapstyle = options.read_u8();
-        overridepowerupsettings = options.read_u8();
+        swapstyle = static_cast<MysteryMushroomSwapStyle>(options.read_u8());
+        overridepowerupsettings = static_cast<PowerupDropRateStyle>(options.read_u8());
         secretsenabled = options.read_u8();
         startgamecountdown = options.read_u8();
         deadteamnotice = options.read_u8();
@@ -366,7 +407,7 @@ void CGameConfig::ReadBinaryConfig() {
         suicidetime = options.read_i16();
 
         poweruppreset = options.read_i16();
-        options.read_i16_array((int16_t *)allPowerupPresets, NUM_POWERUP_PRESETS * NUM_POWERUPS);
+        options.read_i16_array((int16_t *)allPowerupPresets.data(), NUM_POWERUP_PRESETS * NUM_POWERUPS);
 
         fullscreen = options.read_bool();
 
@@ -384,7 +425,7 @@ void CGameConfig::ReadBinaryConfig() {
 
         //Load skin/team settings
         for (short iPlayer = 0; iPlayer < MAX_PLAYERS; iPlayer++) {
-            if (skinids[iPlayer] >= skinlist->count() || skinids[iPlayer] < 0)
+            if (skinids[iPlayer] >= static_cast<short>(skinlist->count()) || skinids[iPlayer] < 0)
                 skinids[iPlayer] = 0;
         }
 
@@ -401,160 +442,251 @@ void CGameConfig::ReadBinaryConfig() {
     }
     catch (std::exception const& error)
     {
-        perror(error.what());
+        printf("[config][warning] Failed to read %s, using default values. (%s)\n", options_path.c_str(), error.what());
+    }
+}
+
+void CGameConfig::ReadInputConfig() {
+    const std::string controls_path(GetControlsBinPath());
+    if (!FileExists(controls_path)) {
+        printf("[config] No controls file, using default controls.\n");
         return;
     }
 
     try {
-        std::string controls_path(GetHomeDirectory() + "controls.sdl2.bin");
         BinaryFile controls(controls_path, "rb");
         if (!controls.is_open())
             throw std::runtime_error("Could not open " + controls_path);
 
-        //TODO: Need to test what happens when you unplug some controllers from the xbox
-        //and then start up (device index will probably point to a gamepad that isn't in the list)
-        //and this will cause a crash
-        controls.read_raw(inputConfiguration, sizeof(CInputPlayerControl) * 8);
+        const size_t fileSize = std::filesystem::file_size(controls_path);
 
-        //setup player input controls for game
+        // Joystick bindings are stored by SDL device GUID. The keyboard is stored as zero.
+        // Identical devices share GUID, so they are assigned to players in attachment order.
+        // Old files stored a 16 bit joystick index, so those players fall back to the keyboard.
+        const size_t configsSize = sizeof(CInputPlayerControl) * 8;
+        controls.read_raw(inputConfiguration, configsSize);
+
+        std::array<SDL_GUID, MAX_PLAYERS> savedDeviceGuids = {};
+        if (fileSize == configsSize + sizeof(SDL_GUID) * MAX_PLAYERS) {
+            for (SDL_GUID& deviceGuid : savedDeviceGuids)
+                controls.read_raw(&deviceGuid, sizeof(SDL_GUID));
+        }
+
+        const auto isKeyboardGuid = [](const SDL_GUID& guid) {
+            return std::memcmp(guid.data, DEVICE_KEYBOARD_GUID.data, sizeof(SDL_GUID)) == 0;
+        };
+
+        // Setup player input controls for game
+        std::vector<SDL_JoystickID> claimedDevices;
         for (short iPlayer = 0; iPlayer < MAX_PLAYERS; iPlayer++) {
-            short iDevice = controls.read_i16();
+            SDL_JoystickID iDevice = DEVICE_KEYBOARD_ID;
 
-            if (iDevice >= joystickcount)
-                iDevice = DEVICE_KEYBOARD;
+            if (!isKeyboardGuid(savedDeviceGuids[iPlayer])) {
+                for (SDL_JoystickID deviceId : JoystickManager::instance().instanceIdsForGuid(savedDeviceGuids[iPlayer])) {
+                    if (std::ranges::find(claimedDevices, deviceId) == claimedDevices.end()) {
+                        claimedDevices.push_back(deviceId);
+                        iDevice = deviceId;
+                        break;
+                    }
+                }
+            }
 
-            playerInput.inputControls[iPlayer] = &inputConfiguration[iPlayer][iDevice == DEVICE_KEYBOARD ? 0 : 1];
+            playerInput.inputControls[iPlayer] = &inputConfiguration[iPlayer][iDevice == DEVICE_KEYBOARD_ID ? 0 : 1];
+            playerInput.inputControls[iPlayer]->iDevice = iDevice;
         }
     }
     catch (std::exception const& error)
     {
-        perror(error.what());
-        return;
+        printf("[config][warning] Failed to read %s, using default controls. (%s)\n", controls_path.c_str(), error.what());
     }
 }
 
-void CGameConfig::WriteConfig() const
-{
+void CGameConfig::WriteInputConfig() const {
+    //the input configuration is stored in its own file, independently of
+    //the game settings
+    const std::string controls_path(GetControlsBinPath());
     try {
-        std::string options_path(GetHomeDirectory() + "options.bin");
-        BinaryFile options(options_path, "wb");
-        if (!options.is_open())
-            throw std::runtime_error("Could not open " + options_path);
-
-        options.write_i32(GAME_VERSION.major);
-        options.write_i32(GAME_VERSION.minor);
-        options.write_i32(GAME_VERSION.patch);
-        options.write_i32(GAME_VERSION.build);
-
-        options.write_u8(static_cast<uint8_t>(spawnstyle));
-        options.write_u8(static_cast<uint8_t>(awardstyle));
-        options.write_u8(static_cast<uint8_t>(teamcollision));
-        options.write_u8(screencrunch);
-        options.write_u8(toplayer);
-        options.write_u8(static_cast<uint8_t>(scoreboardstyle));
-        options.write_u8(teamcolors);
-        options.write_u8(sound);
-        options.write_u8(music);
-        options.write_u8(musicvolume);
-        options.write_u8(soundvolume);
-        options.write_u8(respawn);
-        options.write_u8(outofboundstime);
-        options.write_u8(cpudifficulty);
-        options.write_u8(framelimiter);
-        options.write_u8(bonuswheel);
-        options.write_u8(keeppowerup);
-        options.write_u8(showwinningcrown);
-        options.write_u8(playnextmusic);
-        options.write_u8(pointspeed);
-        options.write_u8(swapstyle);
-        options.write_u8(overridepowerupsettings);
-        options.write_u8(secretsenabled);
-        options.write_u8(startgamecountdown);
-        options.write_u8(deadteamnotice);
-        options.write_u8(static_cast<uint8_t>(tournamentcontrolstyle));
-        options.write_u8(startmodedisplay);
-
-        options.write_i16(shieldtime);
-        options.write_i16(static_cast<short>(shieldstyle));
-        options.write_i16(itemrespawntime);
-        options.write_i16(hiddenblockrespawn);
-        options.write_i16(fireballttl);
-        options.write_i16(fireballlimit);
-        options.write_i16(hammerdelay);
-        options.write_i16(hammerttl);
-        options.write_i16(hammerpower);
-        options.write_i16(hammerlimit);
-        options.write_i16(static_cast<short>(boomerangstyle));
-        options.write_i16(boomeranglife);
-        options.write_i16(boomeranglimit);
-        options.write_i16(featherjumps);
-        options.write_i16(featherlimit);
-        options.write_i16(leaflimit);
-        options.write_i16(pwingslimit);
-        options.write_i16(tanookilimit);
-        options.write_i16(bombslimit);
-        options.write_i16(wandfreezetime);
-        options.write_i16(wandlimit);
-        options.write_i16(shellttl);
-        options.write_i16(blueblockttl);
-        options.write_i16(redblockttl);
-        options.write_i16(grayblockttl);
-        options.write_i16(storedpowerupdelay);
-        options.write_i16(static_cast<short>(warplockstyle));
-        options.write_i16(warplocktime);
-        options.write_i16(suicidetime);
-
-        options.write_i16(poweruppreset);
-        options.write_raw(&allPowerupPresets, sizeof(short) * NUM_POWERUP_PRESETS * NUM_POWERUPS);
-
-        options.write_bool(fullscreen);
-
-        //Write out game mode goals
-        for (short k = 0; k < GAMEMODE_LAST; k++)
-            options.write_i16(gamemodes[k]->goal);
-
-        options.write_raw(&gamemodemenusettings, sizeof(GameModeSettings));
-
-        // FIXME
-        //fwrite_or_exception(&miTeamSelect->iTeamCounts, sizeof(short), 4, fp);
-        //fwrite_or_exception(&miTeamSelect->iTeamIDs, sizeof(short), 12, fp);
-
-        options.write_raw(&skinids, sizeof(short) * 4);
-        options.write_raw(&randomskin, sizeof(bool) * 4);
-        options.write_raw(&playercontrol, sizeof(short) * 4);
-
-        options.write_u8(announcerlist->currentIndex());
-        options.write_u8(musiclist->currentIndex());
-        options.write_u8(worldmusiclist->currentIndex());
-        options.write_u8(soundpacklist->currentIndex());
-        options.write_u8(menugraphicspacklist->currentIndex());
-        options.write_u8(worldgraphicspacklist->currentIndex());
-        options.write_u8(gamegraphicspacklist->currentIndex());
-    }
-    catch (std::exception const& error)
-    {
-        perror(error.what());
-        return;
-    }
-
-    try {
-        std::string controls_path(GetHomeDirectory() + "controls.sdl2.bin");
         BinaryFile controls(controls_path, "wb");
         if (!controls.is_open())
             throw std::runtime_error("Could not open " + controls_path);
 
-
         controls.write_raw(inputConfiguration, sizeof(CInputPlayerControl) * 8);
 
-        for (int iPlayer = 0; iPlayer < 4; iPlayer++)
-            controls.write_i16(playerInput.inputControls[iPlayer]->iDevice);
+        for (int iPlayer = 0; iPlayer < MAX_PLAYERS; iPlayer++) {
+            SDL_GUID deviceGuid = DEVICE_KEYBOARD_GUID;
+            const SDL_JoystickID deviceId = playerInput.inputControls[iPlayer]->iDevice;
+
+            if (deviceId != DEVICE_KEYBOARD_ID)
+                deviceGuid = SDL_GetJoystickGUIDForID(deviceId);
+
+            controls.write_raw(&deviceGuid, sizeof(SDL_GUID));
+        }
     }
     catch (std::exception const& error)
     {
-        perror(error.what());
-        return;
+        printf("[config][warning] Failed to write %s: %s\n", controls_path.c_str(), error.what());
     }
+}
 
-    maplist->WriteFilters();
-    maplist->WriteMapSummaryCache();
+
+void CGameConfig::ReadTomlConfig() {
+    const std::string config_path(GetOptionsTomlPath());
+    try {
+        const toml::value root = toml::parse(config_path);
+
+        config::Bridge bridge;
+        config::apply_config_document(*this, bridge, root);
+
+        // Propagate the per-mode goals into the runtime modes.
+        // The boss minigame goal is set per tour stop, so it has no runtime counterpart here.
+        if (root.contains("gamemode_goals")) {
+            gamemodes[game_mode_classic]->goal = bridge.gamemodegoals.classic;
+            gamemodes[game_mode_frag]->goal = bridge.gamemodegoals.frag;
+            gamemodes[game_mode_timelimit]->goal = bridge.gamemodegoals.time;
+            gamemodes[game_mode_jail]->goal = bridge.gamemodegoals.jail;
+            gamemodes[game_mode_coins]->goal = bridge.gamemodegoals.coins;
+            gamemodes[game_mode_stomp]->goal = bridge.gamemodegoals.stomp;
+            gamemodes[game_mode_eggs]->goal = bridge.gamemodegoals.egg;
+            gamemodes[game_mode_ctf]->goal = bridge.gamemodegoals.flag;
+            gamemodes[game_mode_chicken]->goal = bridge.gamemodegoals.chicken;
+            gamemodes[game_mode_tag]->goal = bridge.gamemodegoals.tag;
+            gamemodes[game_mode_star]->goal = bridge.gamemodegoals.star;
+            gamemodes[game_mode_domination]->goal = bridge.gamemodegoals.domination;
+            gamemodes[game_mode_koth]->goal = bridge.gamemodegoals.kingofthehill;
+            gamemodes[game_mode_race]->goal = bridge.gamemodegoals.race;
+            gamemodes[game_mode_owned]->goal = bridge.gamemodegoals.owned;
+            gamemodes[game_mode_frenzy]->goal = bridge.gamemodegoals.frenzy;
+            gamemodes[game_mode_survival]->goal = bridge.gamemodegoals.survival;
+            gamemodes[game_mode_greed]->goal = bridge.gamemodegoals.greed;
+            gamemodes[game_mode_health]->goal = bridge.gamemodegoals.health;
+            gamemodes[game_mode_collection]->goal = bridge.gamemodegoals.collection;
+            gamemodes[game_mode_chase]->goal = bridge.gamemodegoals.chase;
+            gamemodes[game_mode_shyguytag]->goal = bridge.gamemodegoals.shyguytag;
+        }
+
+        // SimpleFileList::find() only moves the current item if the name is found.
+        if (!bridge.announcerpack.empty())
+            announcerlist->find(bridge.announcerpack);
+        if (!bridge.soundpack.empty())
+            soundpacklist->find(bridge.soundpack);
+
+        if (!bridge.menugraphicspack.empty())
+            menugraphicspacklist->find(bridge.menugraphicspack);
+        if (!bridge.worldgraphicspack.empty())
+            worldgraphicspacklist->find(bridge.worldgraphicspack);
+        if (!bridge.gamegraphicspack.empty())
+            gamegraphicspacklist->find(bridge.gamegraphicspack);
+
+        // Resolve the selected skin names into skin IDs; an empty name selects a random skin.
+        // Unknown names warn and keep the current skin.
+        for (size_t player = 0; player < MAX_PLAYERS; player++) {
+            if (bridge.skins[player].empty()) {
+                randomskin[player] = true;
+                continue;
+            }
+
+            randomskin[player] = false;
+            bool found = false;
+            for (size_t skin = 0; skin < skinlist->count(); skin++) {
+                if (skinlist->at(skin).name == bridge.skins[player]) {
+                    skinids[player] = static_cast<short>(skin);
+                    found = true;
+                    break;
+                }
+            }
+            if (!found)
+                printf("[config][warning] Skin '%s' for player %d not found, keeping the current skin.\n", bridge.skins[player].c_str(), static_cast<int>(player));
+        }
+
+        for (size_t player = 0; player < MAX_PLAYERS; player++)
+            playercontrol[player] = static_cast<short>(bridge.player_slots[player]);
+
+        for (size_t pack = 0; pack < musiclist->count(); pack++) {
+            if (musiclist->nameAt(pack) == bridge.gamemusicpack) {
+                musiclist->setCurrent(pack);
+                break;
+            }
+        }
+        for (size_t pack = 0; pack < worldmusiclist->count(); pack++) {
+            if (worldmusiclist->nameAt(pack) == bridge.worldmusicpack) {
+                worldmusiclist->setCurrent(pack);
+                break;
+            }
+        }
+
+        sfx_setmusicvolume(musicvolume);
+        sfx_setsoundvolume(soundvolume);
+    }
+    catch (const toml::file_io_error&) {
+        printf("[config][warning] Could not open %s, using default values.\n", config_path.c_str());
+    }
+    catch (const std::exception& error) {
+        printf("[config][warning] %s: %s\n", config_path.c_str(), error.what());
+    }
+}
+
+
+void CGameConfig::WriteTomlConfig() const {
+    const std::string config_path(GetOptionsTomlPath());
+    try {
+        std::ofstream config(config_path);
+        if (!config.is_open())
+            throw std::runtime_error("Could not create " + config_path);
+
+        config::Bridge bridge;
+
+        bridge.announcerpack = GetNameFromFileName(announcerlist->currentPath().string());
+        bridge.soundpack = GetNameFromFileName(soundpacklist->currentPath().string());
+        bridge.gamemusicpack = musiclist->currentName();
+        bridge.worldmusicpack = worldmusiclist->currentName();
+
+        bridge.menugraphicspack = GetNameFromFileName(menugraphicspacklist->currentPath().string());
+        bridge.worldgraphicspack = GetNameFromFileName(worldgraphicspacklist->currentPath().string());
+        bridge.gamegraphicspack = GetNameFromFileName(gamegraphicspacklist->currentPath().string());
+
+        for (size_t player = 0; player < MAX_PLAYERS; player++) {
+            if (randomskin[player] || skinids[player] < 0 || skinids[player] >= static_cast<short>(skinlist->count())) {
+                bridge.skins[player].clear();
+            } else {
+                bridge.skins[player] = skinlist->at(skinids[player]).name;
+            }
+        }
+        for (size_t player = 0; player < MAX_PLAYERS; player++) {
+            if (playercontrol[player] >= 0 && playercontrol[player] <= 2) {
+                bridge.player_slots[player] = static_cast<PlayerSlot>(playercontrol[player]);
+            } else {
+                bridge.player_slots[player] = PlayerSlot::Empty;
+            }
+        }
+
+        // The boss minigame goal is set per tour stop, so it is not bridged here
+        bridge.gamemodegoals.classic = gamemodes[game_mode_classic]->goal;
+        bridge.gamemodegoals.frag = gamemodes[game_mode_frag]->goal;
+        bridge.gamemodegoals.time = gamemodes[game_mode_timelimit]->goal;
+        bridge.gamemodegoals.jail = gamemodes[game_mode_jail]->goal;
+        bridge.gamemodegoals.coins = gamemodes[game_mode_coins]->goal;
+        bridge.gamemodegoals.stomp = gamemodes[game_mode_stomp]->goal;
+        bridge.gamemodegoals.egg = gamemodes[game_mode_eggs]->goal;
+        bridge.gamemodegoals.flag = gamemodes[game_mode_ctf]->goal;
+        bridge.gamemodegoals.chicken = gamemodes[game_mode_chicken]->goal;
+        bridge.gamemodegoals.tag = gamemodes[game_mode_tag]->goal;
+        bridge.gamemodegoals.star = gamemodes[game_mode_star]->goal;
+        bridge.gamemodegoals.domination = gamemodes[game_mode_domination]->goal;
+        bridge.gamemodegoals.kingofthehill = gamemodes[game_mode_koth]->goal;
+        bridge.gamemodegoals.race = gamemodes[game_mode_race]->goal;
+        bridge.gamemodegoals.owned = gamemodes[game_mode_owned]->goal;
+        bridge.gamemodegoals.frenzy = gamemodes[game_mode_frenzy]->goal;
+        bridge.gamemodegoals.survival = gamemodes[game_mode_survival]->goal;
+        bridge.gamemodegoals.greed = gamemodes[game_mode_greed]->goal;
+        bridge.gamemodegoals.health = gamemodes[game_mode_health]->goal;
+        bridge.gamemodegoals.collection = gamemodes[game_mode_collection]->goal;
+        bridge.gamemodegoals.chase = gamemodes[game_mode_chase]->goal;
+        bridge.gamemodegoals.shyguytag = gamemodes[game_mode_shyguytag]->goal;
+
+        const toml::ordered_value document = config::make_config_document(*this, bridge);
+        config << toml::format(document);
+    }
+    catch (const std::exception& error) {
+        printf("[config][warning] Failed to write %s: %s\n", config_path.c_str(), error.what());
+    }
 }
